@@ -17,7 +17,8 @@ smlmarketsync/
 ├── steps/
 │   ├── product_sync.go        # Steps 1-4: Product/Inventory sync
 │   ├── balance_sync.go        # Step 5: Balance sync
-│   └── customer_sync.go       # Step 6: Customer sync
+│   ├── customer_sync.go       # Step 6: Customer sync
+│   └── price_sync.go          # Step 7: Price sync
 └── models/
     └── product.go             # Legacy models (เก็บไว้สำหรับ backward compatibility)
 ```
@@ -36,6 +37,11 @@ smlmarketsync/
 
 ### Step 6: Customer Sync (`steps/customer_sync.go`)
 - ดึงข้อมูลลูกค้าจาก `ar_customer`
+- Sync แบบ batch UPSERT ไปยัง API
+
+### Step 7: Price Sync (`steps/price_sync.go`)
+- ดึงข้อมูลราคาสินค้าจาก `ic_inventory_price`
+- ครอบคลุมฟิลด์: ic_code, unit_code, from_qty, to_qty, from_date, to_date, sale_type, sale_price1, status, price_type, cust_code, sale_price2, cust_group_1, cust_group_2, price_mode
 - Sync แบบ batch UPSERT ไปยัง API
 
 ## 🏗️ ประโยชน์ของโครงสร้างใหม่

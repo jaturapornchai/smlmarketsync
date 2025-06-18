@@ -46,3 +46,22 @@ type CustomerItem struct {
 	Code       string `json:"code"`
 	PriceLevel string `json:"price_level"`
 }
+
+// PriceItem สำหรับข้อมูล ic_inventory_price
+type PriceItem struct {
+	IcCode      string  `json:"ic_code"`
+	UnitCode    string  `json:"unit_code"`
+	FromQty     float64 `json:"from_qty"`
+	ToQty       float64 `json:"to_qty"`
+	FromDate    string  `json:"from_date"`
+	ToDate      string  `json:"to_date"`
+	SaleType    string  `json:"sale_type"`
+	SalePrice1  float64 `json:"sale_price1"`
+	Status      string  `json:"status"`
+	PriceType   string  `json:"price_type"`
+	CustCode    string  `json:"cust_code"`
+	SalePrice2  float64 `json:"sale_price2"`
+	CustGroup1  string  `json:"cust_group_1"`
+	CustGroup2  string  `json:"cust_group_2"`
+	PriceMode   string  `json:"price_mode"`
+}

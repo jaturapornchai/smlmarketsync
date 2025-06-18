@@ -119,10 +119,10 @@ func (s *BalanceSyncStep) GetAllBalanceFromSource() ([]interface{}, error) {
 
 		// แปลงเป็น map สำหรับ API
 		balanceMap := map[string]interface{}{
-			"ic_code":     balance.IcCode,
-			"warehouse":   balance.Warehouse,
+			"ic_code":      balance.IcCode,
+			"warehouse":    balance.Warehouse,
 			"ic_unit_code": balance.UnitCode,
-			"balance_qty": balance.BalanceQty,
+			"balance_qty":  balance.BalanceQty,
 		}
 
 		balances = append(balances, balanceMap)
