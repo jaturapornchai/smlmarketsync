@@ -25,7 +25,7 @@ type ProductBarcode struct {
 	UnitName sql.NullString `json:"unit_name"`
 }
 
-// InventoryItem สำหรับข้อมูลที่จะ upload ไป ic_inventory_barcode_temp
+// InventoryItem สำหรับข้อมูลที่จะ upload ไป ic_inventory_barcode
 type InventoryItem struct {
 	IcCode   string `json:"ic_code"`
 	Barcode  string `json:"barcode"`
@@ -177,68 +177,6 @@ func (r *ProductRepository) Delete(id int) error {
 	return err
 }
 
-// PrepareInventoryTempTable เตรียมตาราง ic_inventory_temp
-func (r *ProductRepository) PrepareInventoryTempTable() error {
-	fmt.Println("กำลังตรวจสอบและเตรียมตาราง ic_inventory_temp...")
-
-	// ตรวจสอบว่ามีตารางอยู่หรือไม่
-	exists, err := r.apiClient.CheckTableExists("ic_inventory_temp")
-	if err != nil {
-		return fmt.Errorf("error checking table existence: %v", err)
-	}
-
-	// ถ้ามีตารางอยู่ ให้ drop ทิ้ง
-	if exists {
-		fmt.Println("พบตาราง ic_inventory_temp อยู่แล้ว กำลัง drop...")
-		err = r.apiClient.DropTable("ic_inventory_temp")
-		if err != nil {
-			return fmt.Errorf("error dropping table: %v", err)
-		}
-		fmt.Println("✅ ลบตาราง ic_inventory_temp เรียบร้อยแล้ว")
-	}
-
-	// สร้างตารางใหม่
-	fmt.Println("กำลังสร้างตาราง ic_inventory_temp ใหม่...")
-	err = r.apiClient.CreateInventoryTempTable()
-	if err != nil {
-		return fmt.Errorf("error creating table: %v", err)
-	}
-
-	fmt.Println("✅ สร้างตาราง ic_inventory_temp เรียบร้อยแล้ว")
-	return nil
-}
-
-// PrepareInventoryTempTableViaAPI เตรียมตาราง ic_inventory_barcode_temp ผ่าน API เท่านั้น
-func (r *ProductRepository) PrepareInventoryTempTableViaAPI() error {
-	fmt.Println("กำลังตรวจสอบและเตรียมตาราง ic_inventory_barcode_temp ผ่าน API...")
-
-	// ตรวจสอบว่ามีตารางอยู่หรือไม่ ผ่าน API
-	exists, err := r.apiClient.CheckTableExists("ic_inventory_barcode_temp")
-	if err != nil {
-		return fmt.Errorf("error checking table existence via API: %v", err)
-	}
-
-	// ถ้ามีตารางอยู่ ให้ drop ทิ้งผ่าน API
-	if exists {
-		fmt.Println("พบตาราง ic_inventory_barcode_temp อยู่แล้ว กำลัง drop ผ่าน API...")
-		err = r.apiClient.DropTable("ic_inventory_barcode_temp")
-		if err != nil {
-			return fmt.Errorf("error dropping table via API: %v", err)
-		}
-		fmt.Println("✅ ลบตาราง ic_inventory_barcode_temp เรียบร้อยแล้ว (ผ่าน API)")
-	}
-
-	// สร้างตารางใหม่ผ่าน API
-	fmt.Println("กำลังสร้างตาราง ic_inventory_barcode_temp ใหม่ผ่าน API...")
-	err = r.apiClient.CreateInventoryTempTable()
-	if err != nil {
-		return fmt.Errorf("error creating table via API: %v", err)
-	}
-
-	fmt.Println("✅ สร้างตาราง ic_inventory_barcode_temp เรียบร้อยแล้ว (ผ่าน API)")
-	return nil
-}
-
 // GetAllInventoryItemsFromSource ดึงข้อมูลสินค้าทั้งหมดจากฐานข้อมูลต้นทาง
 func (r *ProductRepository) GetAllInventoryItemsFromSource() ([]InventoryItem, error) {
 	fmt.Println("กำลังดึงข้อมูลสินค้าจาก ic_inventory_barcode...")
@@ -247,10 +185,10 @@ func (r *ProductRepository) GetAllInventoryItemsFromSource() ([]InventoryItem, e
 		SELECT 
 			ic_code,
 			barcode,
-			(SELECT name_1 FROM ic_inventory WHERE code=ic_code) as name,
+			coalesce((SELECT name_1 FROM ic_inventory WHERE code=ic_code), 'XX') as name,
 			unit_code,
-			(SELECT name_1 FROM ic_unit WHERE code=unit_code) as unit_name 
-		FROM ic_inventory_barcode
+			coalesce((SELECT name_1 FROM ic_unit WHERE code=unit_code), 'XX') as unit_name
+		FROM ic_inventory_barcode where name is not null and name != ''
 		ORDER BY barcode`
 
 	fmt.Println("กำลังดึงข้อมูลสินค้าทั้งหมดจากฐานข้อมูลต้นทาง...")
@@ -370,17 +308,19 @@ func (r *ProductRepository) uploadBatchViaAPI(items []InventoryItem) error {
 		)
 		valueStrings = append(valueStrings, valueString)
 	}
-
 	query := fmt.Sprintf(`
-		INSERT INTO ic_inventory_barcode_temp 
+		INSERT INTO ic_inventory_barcode 
 		(ic_code, barcode, name, unit_code, unit_name)
 		VALUES %s
 		ON CONFLICT (barcode) DO UPDATE SET
 			ic_code = EXCLUDED.ic_code,
 			name = EXCLUDED.name,
 			unit_code = EXCLUDED.unit_code,
-			unit_name = EXCLUDED.unit_name,
-			updated_at = CURRENT_TIMESTAMP`,
+			unit_name = EXCLUDED.unit_name
+		WHERE ic_inventory_barcode.name IS DISTINCT FROM EXCLUDED.name
+			OR ic_inventory_barcode.ic_code IS DISTINCT FROM EXCLUDED.ic_code
+			OR ic_inventory_barcode.unit_code IS DISTINCT FROM EXCLUDED.unit_code
+			OR ic_inventory_barcode.unit_name IS DISTINCT FROM EXCLUDED.unit_name`,
 		strings.Join(valueStrings, ","))
 
 	// ใช้ API client แทน direct database connection
@@ -406,28 +346,22 @@ func (r *ProductRepository) SyncWithMainTable() error {
 		return fmt.Errorf("error creating ic_inventory_barcode table: %v", err)
 	}
 	fmt.Println("✅ ตรวจสอบ/สร้างตาราง ic_inventory_barcode เรียบร้อยแล้ว")
-
-	fmt.Println("กำลังเปรียบเทียบและซิงค์ข้อมูลระหว่าง 2 ตาราง...")
-
-	// ซิงค์ข้อมูลระหว่าง temp table และ main table
-	err = r.apiClient.SyncInventoryBarcodeData()
+	fmt.Println("กำลังซิงค์ข้อมูลสินค้า...")
+	// ซิงค์ข้อมูล
+	insertCount, totalCount, err := r.apiClient.SyncInventoryBarcodeData()
 	if err != nil {
 		return fmt.Errorf("error syncing data: %v", err)
 	}
-
-	fmt.Println("✅ ซิงค์ข้อมูลระหว่าง temp table และ main table เรียบร้อยแล้ว")
-
-	// ดึงสถิติการซิงค์
-	stats, err := r.apiClient.GetSyncStatistics()
+	fmt.Printf("   - จำนวนรายการที่อัปเดต: %d\n   - จำนวนรายการทั้งหมด: %d\n", insertCount, totalCount)
+	fmt.Println("กำลังตรวจสอบสถิติการซิงค์...") // ดึงสถิติการซิงค์
+	count, _, err := r.apiClient.GetSyncStatistics()
 	if err != nil {
 		fmt.Printf("⚠️ ไม่สามารถดึงสถิติได้: %v\n", err)
 		return nil
 	}
 
 	fmt.Printf("\n📊 สถิติการซิงค์:\n")
-	fmt.Printf("   - ข้อมูลใน temp table: %d รายการ\n", stats["temp_count"])
-	fmt.Printf("   - ข้อมูล active ใน main table: %d รายการ\n", stats["active_count"])
-	fmt.Printf("   - ข้อมูล inactive ใน main table: %d รายการ\n", stats["inactive_count"])
+	fmt.Printf("   - จำนวนรายการที่ซิงค์: %d รายการ\n", count)
 
 	return nil
 }
@@ -515,28 +449,17 @@ func (r *ProductRepository) SyncBalanceWithAPI() error {
 		fmt.Println("ไม่มีข้อมูล balance ใน local database")
 		return nil
 	}
+	// ซิงค์ข้อมูล balance
+	fmt.Println("กำลังซิงค์ข้อมูล balance...")
+	fmt.Printf("📦 จะประมวลผลข้อมูล %d รายการ\n", len(localData))
 
-	// ดึงข้อมูล balance ที่มีอยู่จาก API
-	fmt.Println("กำลังดึงข้อมูล balance ที่มีอยู่จาก API...")
-	existingData, err := r.apiClient.GetExistingBalanceData()
-	if err != nil {
-		return fmt.Errorf("error getting existing balance data: %v", err)
-	}
-	fmt.Printf("พบข้อมูล balance ใน API อยู่แล้ว %d รายการ\n", len(existingData))
-	// ซิงค์ข้อมูลโดยเปรียบเทียบ memory ก่อนตัดสินใจ
-	fmt.Println("กำลังเปรียบเทียบและซิงค์ข้อมูล balance (เปรียบเทียบ memory)...")
-	fmt.Printf("📦 จะประมวลผลข้อมูล %d รายการ โดยเปรียบเทียบกับ API data ใน memory\n", len(localData))
-
-	insertCount, updateCount, err := r.apiClient.SyncBalanceData(localData, existingData)
+	totalCount, err := r.apiClient.SyncBalanceData(localData)
 	if err != nil {
 		return fmt.Errorf("error syncing balance data: %v", err)
 	}
-	fmt.Printf("✅ ซิงค์ข้อมูล balance เรียบร้อยแล้ว (เปรียบเทียบ memory + batch operations)\n")
+	fmt.Printf("✅ ซิงค์ข้อมูล balance เรียบร้อยแล้ว\n")
 	fmt.Printf("📊 สถิติการซิงค์ balance:\n")
-	fmt.Printf("   - ข้อมูลใน local: %d รายการ\n", len(localData))
-	fmt.Printf("   - Insert ใหม่: %d รายการ (แบบ batch)\n", insertCount)
-	fmt.Printf("   - Update ที่มีอยู่: %d รายการ (แบบ batch)\n", updateCount)
-	fmt.Printf("   - ไม่เปลี่ยนแปลง: %d รายการ\n", len(localData)-insertCount-updateCount)
+	fmt.Printf("   - ข้อมูลที่ซิงค์: %d รายการ (แบบ batch)\n", totalCount)
 
 	return nil
 }

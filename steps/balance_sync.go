@@ -43,32 +43,24 @@ func (s *BalanceSyncStep) ExecuteBalanceSync() error {
 		fmt.Println("ไม่มีข้อมูล balance ใน local database")
 		return nil
 	}
-
 	fmt.Printf("ดึงข้อมูล balance จาก local ได้ %d รายการ\n", len(localData))
+	// 3. ซิงค์ข้อมูลโดยส่งทั้งหมดแบบ batch UPSERT
+	fmt.Println("กำลังซิงค์ข้อมูล balance...")
+	fmt.Printf("📦 จะประมวลผลข้อมูล %d รายการ\n", len(localData))
 
-	// 3. ดึงข้อมูล balance ที่มีอยู่จาก API (สำหรับสถิติ)
-	fmt.Println("กำลังดึงข้อมูล balance ที่มีอยู่จาก API...")
-	existingData, err := s.apiClient.GetExistingBalanceData()
-	if err != nil {
-		return fmt.Errorf("error getting existing balance data: %v", err)
+	// แสดงตัวอย่างข้อมูลรายการแรก
+	if len(localData) > 0 {
+		fmt.Printf("ตัวอย่างข้อมูลรายการแรก: %v\n", localData[0])
 	}
-	fmt.Printf("พบข้อมูล balance ใน API อยู่แล้ว %d รายการ\n", len(existingData))
 
-	// 4. ซิงค์ข้อมูลโดยส่งทั้งหมดแบบ batch UPSERT
-	fmt.Println("กำลังเปรียบเทียบและซิงค์ข้อมูล balance (เปรียบเทียบ memory)...")
-	fmt.Printf("📦 จะประมวลผลข้อมูล %d รายการ โดยเปรียบเทียบกับ API data ใน memory\n", len(localData))
-
-	insertCount, updateCount, err := s.apiClient.SyncBalanceData(localData, existingData)
+	totalCount, err := s.apiClient.SyncBalanceData(localData)
 	if err != nil {
 		return fmt.Errorf("error syncing balance data: %v", err)
 	}
 
-	fmt.Printf("✅ ซิงค์ข้อมูล balance เรียบร้อยแล้ว (เปรียบเทียบ memory + batch operations)\n")
+	fmt.Printf("✅ ซิงค์ข้อมูล balance เรียบร้อยแล้ว\n")
 	fmt.Printf("📊 สถิติการซิงค์ balance:\n")
-	fmt.Printf("   - ข้อมูลใน local: %d รายการ\n", len(localData))
-	fmt.Printf("   - Insert ใหม่: %d รายการ (แบบ batch)\n", insertCount)
-	fmt.Printf("   - Update ที่มีอยู่: %d รายการ (แบบ batch)\n", updateCount)
-	fmt.Printf("   - ไม่เปลี่ยนแปลง: %d รายการ\n", len(localData)-insertCount-updateCount)
+	fmt.Printf("   - ข้อมูลที่ซิงค์: %d รายการ (แบบ batch)\n", totalCount)
 
 	return nil
 }
@@ -137,12 +129,11 @@ func (s *BalanceSyncStep) GetAllBalanceFromSource() ([]interface{}, error) {
 			continue
 		}
 		balance.BalanceQty = balanceQty
-
 		// แปลงเป็น map สำหรับ API
 		balanceMap := map[string]interface{}{
 			"ic_code":      balance.IcCode,
-			"warehouse":    balance.Warehouse,
-			"ic_unit_code": balance.UnitCode,
+			"warehouse":    balance.Warehouse, // Field name in API is 'warehouse'
+			"ic_unit_code": balance.UnitCode,  // Field name in API is 'ic_unit_code'
 			"balance_qty":  balance.BalanceQty,
 		}
 
@@ -158,7 +149,13 @@ func (s *BalanceSyncStep) GetAllBalanceFromSource() ([]interface{}, error) {
 	if err = rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating balance rows: %v", err)
 	}
-
 	fmt.Printf("ดึงข้อมูล balance จากฐานข้อมูลต้นทางได้ %d รายการ\n", count)
+
+	// ตรวจสอบโครงสร้างข้อมูลก่อนส่งกลับ
+	if len(balances) > 0 {
+		sampleItem := balances[0]
+		fmt.Printf("โครงสร้างข้อมูล balance ที่จะส่งไป API (ตัวอย่างรายการแรก): %+v\n", sampleItem)
+	}
+
 	return balances, nil
 }

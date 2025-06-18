@@ -20,13 +20,13 @@ func NewProductSyncStep(db *sql.DB) *ProductSyncStep {
 	}
 }
 
-// ExecuteProductSync รันขั้นตอนที่ 1-4: การ sync สินค้า
+// ExecuteProductSync รันขั้นตอนที่ 1-3: การ sync สินค้า
 func (s *ProductSyncStep) ExecuteProductSync() error {
-	// ขั้นตอนที่ 1: เตรียมตาราง ic_inventory_barcode_temp
-	fmt.Println("=== ขั้นตอนที่ 1: เตรียมตาราง ic_inventory_barcode_temp ผ่าน API ===")
-	err := s.PrepareInventoryTempTableViaAPI()
+	// ขั้นตอนที่ 1: เตรียมตาราง barcode
+	fmt.Println("=== ขั้นตอนที่ 1: ตรวจสอบตาราง barcode ผ่าน API ===")
+	err := s.PrepareInventoryTable()
 	if err != nil {
-		return fmt.Errorf("error preparing temp table: %v", err)
+		return fmt.Errorf("error preparing barcode table: %v", err)
 	}
 
 	// ขั้นตอนที่ 2: ดึงข้อมูลสินค้าทั้งหมด
@@ -43,78 +43,75 @@ func (s *ProductSyncStep) ExecuteProductSync() error {
 
 	fmt.Printf("พบข้อมูลสินค้าทั้งหมด %d รายการ\n", len(inventoryItems))
 
-	// ขั้นตอนที่ 3: Upload ข้อมูลเป็น batch
-	fmt.Println("=== ขั้นตอนที่ 3: Upload ข้อมูลไป ic_inventory_barcode_temp ผ่าน API ===")
+	// ขั้นตอนที่ 3: Upload ข้อมูลเป็น batch ด้วย UPSERT
+	fmt.Println("=== ขั้นตอนที่ 3: Upload และอัพเดทข้อมูลไป ic_inventory_barcode ด้วย UPSERT ===")
 	batchSize := 500
 	err = s.UploadInventoryItemsBatchViaAPI(inventoryItems, batchSize)
 	if err != nil {
 		return fmt.Errorf("error uploading inventory items: %v", err)
 	}
 
-	// ขั้นตอนที่ 4: ซิงค์ข้อมูลกับตาราง ic_inventory_barcode
-	fmt.Println("=== ขั้นตอนที่ 4: ซิงค์ข้อมูลกับตาราง ic_inventory_barcode ===")
-	err = s.SyncInventoryData()
-	if err != nil {
-		return fmt.Errorf("error syncing inventory data: %v", err)
-	}
-
+	fmt.Println("✅ การซิงค์ข้อมูลสินค้าด้วย UPSERT เสร็จสิ้น")
 	return nil
 }
 
-// PrepareInventoryTempTableViaAPI เตรียมตาราง temp สำหรับสินค้า
-func (s *ProductSyncStep) PrepareInventoryTempTableViaAPI() error {
-	fmt.Println("กำลังตรวจสอบและเตรียมตาราง ic_inventory_barcode_temp ผ่าน API...")
-
+// PrepareInventoryTable เตรียมตาราง barcode สำหรับสินค้า
+func (s *ProductSyncStep) PrepareInventoryTable() error {
+	fmt.Println("กำลังตรวจสอบตาราง ic_inventory_barcode ผ่าน API...")
 	// ตรวจสอบว่ามีตารางอยู่หรือไม่
 	checkQuery := `
-		SELECT COUNT(*) 
-		FROM information_schema.tables 
-		WHERE table_name = 'ic_inventory_barcode_temp'
+		SELECT EXISTS(
+			SELECT 1 
+			FROM information_schema.tables 
+			WHERE table_name = 'ic_inventory_barcode'
+		)
 	`
 
 	resp, err := s.apiClient.ExecuteSelect(checkQuery)
 	if err != nil {
-		return fmt.Errorf("error checking temp table existence: %v", err)
+		return fmt.Errorf("error checking table existence: %v", err)
 	}
 
-	// หากมีตารางอยู่แล้ว ให้ลบออก
+	// ตรวจสอบว่ามีตารางอยู่แล้วหรือไม่
+	tableExists := false
 	if resp.Success {
-		fmt.Println("พบตาราง ic_inventory_barcode_temp อยู่แล้ว กำลัง drop ผ่าน API...")
-		dropQuery := "DROP TABLE IF EXISTS ic_inventory_barcode_temp"
-		resp, err := s.apiClient.ExecuteCommand(dropQuery)
+		if data, ok := resp.Data.([]interface{}); ok && len(data) > 0 {
+			if row, ok := data[0].(map[string]interface{}); ok {
+				if exists, ok := row["exists"].(bool); ok {
+					tableExists = exists
+				}
+			}
+		}
+	}
+
+	// ถ้าไม่มีตาราง ให้สร้างใหม่
+	if !tableExists {
+		fmt.Println("ไม่พบตาราง ic_inventory_barcode กำลังสร้างตารางใหม่...")
+		createQuery := `
+			CREATE TABLE ic_inventory_barcode (
+				ic_code VARCHAR(50) NOT NULL,
+				barcode VARCHAR(100) NOT NULL,
+				name VARCHAR(255),
+				unit_code VARCHAR(20),
+				unit_name VARCHAR(100),
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				PRIMARY KEY (barcode)
+			)
+		`
+
+		resp, err = s.apiClient.ExecuteCommand(createQuery)
 		if err != nil {
-			return fmt.Errorf("error dropping temp table: %v", err)
+			return fmt.Errorf("error creating table: %v", err)
 		}
 		if !resp.Success {
-			return fmt.Errorf("failed to drop temp table: %s", resp.Message)
+			return fmt.Errorf("failed to create table: %s", resp.Message)
 		}
-		fmt.Println("✅ ลบตาราง ic_inventory_barcode_temp เรียบร้อยแล้ว (ผ่าน API)")
+		fmt.Println("✅ สร้างตาราง ic_inventory_barcode เรียบร้อยแล้ว")
+	} else {
+		fmt.Println("✅ พบตาราง ic_inventory_barcode อยู่แล้ว")
 	}
 
-	// สร้างตารางใหม่
-	fmt.Println("กำลังสร้างตาราง ic_inventory_barcode_temp ใหม่ผ่าน API...")
-	createQuery := `
-		CREATE TABLE ic_inventory_barcode_temp (
-			ic_code VARCHAR(50) NOT NULL,
-			barcode VARCHAR(100) NOT NULL,
-			name VARCHAR(255),
-			unit_code VARCHAR(20),
-			unit_name VARCHAR(100),
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			PRIMARY KEY (barcode)
-		)
-	`
-
-	resp, err = s.apiClient.ExecuteCommand(createQuery)
-	if err != nil {
-		return fmt.Errorf("error creating temp table: %v", err)
-	}
-
-	if !resp.Success {
-		return fmt.Errorf("failed to create temp table: %s", resp.Message)
-	}
-
-	fmt.Println("✅ สร้างตาราง ic_inventory_barcode_temp เรียบร้อยแล้ว (ผ่าน API)")
 	return nil
 }
 
@@ -124,9 +121,9 @@ func (s *ProductSyncStep) GetAllInventoryItemsFromSource() ([]interface{}, error
 		SELECT 
 			ic_code, 
 			barcode,
-			(SELECT name_1 FROM ic_inventory WHERE code=ic_code) as name,
+			coalesce((SELECT name_1 FROM ic_inventory WHERE code=ic_code), 'XX') as name,
 			unit_code,
-			(SELECT name_1 FROM ic_unit WHERE code=unit_code) as unit_name 
+			coalesce((SELECT name_1 FROM ic_unit WHERE code=unit_code), 'XX') as unit_name 
 		FROM ic_inventory_barcode
 		WHERE barcode IS NOT NULL AND barcode != ''
 		ORDER BY barcode
@@ -155,6 +152,9 @@ func (s *ProductSyncStep) GetAllInventoryItemsFromSource() ([]interface{}, error
 			fmt.Printf("⚠️ ข้ามรายการที่อ่านไม่ได้: %v\n", err)
 			continue
 		}
+		if item.Name == "XX" || item.UnitName == "XX" {
+			fmt.Printf("⚠️ รายการที่มีชื่อหรือหน่วยไม่ถูกต้อง: %s\n", item.Barcode)
+		}
 
 		// แปลงเป็น map สำหรับ API
 		itemMap := map[string]interface{}{
@@ -182,12 +182,12 @@ func (s *ProductSyncStep) GetAllInventoryItemsFromSource() ([]interface{}, error
 	return items, nil
 }
 
-// UploadInventoryItemsBatchViaAPI อัพโหลดข้อมูลแบบ batch
+// UploadInventoryItemsBatchViaAPI อัพโหลดข้อมูลแบบ batch ด้วย UPSERT
 func (s *ProductSyncStep) UploadInventoryItemsBatchViaAPI(items []interface{}, batchSize int) error {
 	totalItems := len(items)
 	totalBatches := (totalItems + batchSize - 1) / batchSize
 
-	fmt.Printf("กำลัง upload ข้อมูลสินค้าทั้งหมด %d รายการผ่าน API (batch size: %d)\n", totalItems, batchSize)
+	fmt.Printf("กำลัง upload และอัพเดทข้อมูลสินค้าทั้งหมด %d รายการด้วย UPSERT (batch size: %d)\n", totalItems, batchSize)
 
 	for i := 0; i < totalItems; i += batchSize {
 		end := i + batchSize
@@ -196,21 +196,21 @@ func (s *ProductSyncStep) UploadInventoryItemsBatchViaAPI(items []interface{}, b
 		}
 
 		batchNum := (i / batchSize) + 1
-		fmt.Printf("กำลัง upload batch %d/%d (รายการ %d-%d) ผ่าน API\n", batchNum, totalBatches, i+1, end)
+		fmt.Printf("กำลัง upload และอัพเดทข้อมูล batch %d/%d (รายการ %d-%d) ด้วย UPSERT\n", batchNum, totalBatches, i+1, end)
 
 		err := s.uploadBatch(items[i:end])
 		if err != nil {
 			return fmt.Errorf("error uploading batch %d: %v", batchNum, err)
 		}
 
-		fmt.Printf("✅ Upload batch %d สำเร็จ (%d รายการ)\n", batchNum, end-i)
+		fmt.Printf("✅ UPSERT batch %d สำเร็จ (%d รายการ)\n", batchNum, end-i)
 	}
 
-	fmt.Printf("✅ Upload ข้อมูลสินค้าทั้งหมด %d รายการเสร็จสิ้น (ผ่าน API)\n", totalItems)
+	fmt.Printf("✅ UPSERT ข้อมูลสินค้าทั้งหมด %d รายการเสร็จสิ้น\n", totalItems)
 	return nil
 }
 
-// uploadBatch อัพโหลดข้อมูล 1 batch
+// uploadBatch อัพโหลดข้อมูล 1 batch ด้วย UPSERT (INSERT ... ON CONFLICT ... DO UPDATE)
 func (s *ProductSyncStep) uploadBatch(batch []interface{}) error {
 	if len(batch) == 0 {
 		return nil
@@ -234,14 +234,24 @@ func (s *ProductSyncStep) uploadBatch(batch []interface{}) error {
 			values = append(values, value)
 		}
 	}
-
 	if len(values) == 0 {
 		return nil
 	}
-
 	query := fmt.Sprintf(`
-		INSERT INTO ic_inventory_barcode_temp (ic_code, barcode, name, unit_code, unit_name)
+		INSERT INTO ic_inventory_barcode (ic_code, barcode, name, unit_code, unit_name)
 		VALUES %s
+		ON CONFLICT (barcode)
+		DO UPDATE SET
+			ic_code = EXCLUDED.ic_code,
+			name = EXCLUDED.name,
+			unit_code = EXCLUDED.unit_code,
+			unit_name = EXCLUDED.unit_name
+		WHERE (
+			ic_inventory_barcode.ic_code IS DISTINCT FROM EXCLUDED.ic_code OR
+			ic_inventory_barcode.name IS DISTINCT FROM EXCLUDED.name OR
+			ic_inventory_barcode.unit_code IS DISTINCT FROM EXCLUDED.unit_code OR
+			ic_inventory_barcode.unit_name IS DISTINCT FROM EXCLUDED.unit_name
+		)
 	`, strings.Join(values, ","))
 
 	resp, err := s.apiClient.ExecuteCommand(query)
@@ -252,32 +262,7 @@ func (s *ProductSyncStep) uploadBatch(batch []interface{}) error {
 	if !resp.Success {
 		return fmt.Errorf("batch insert failed: %s", resp.Message)
 	}
-
 	return nil
 }
 
-// SyncInventoryData ซิงค์ข้อมูลระหว่าง temp และ main table
-func (s *ProductSyncStep) SyncInventoryData() error {
-	// ตรวจสอบและสร้างตาราง ic_inventory_barcode
-	fmt.Println("กำลังตรวจสอบและสร้างตาราง ic_inventory_barcode...")
-	err := s.apiClient.CreateInventoryTable()
-	if err != nil {
-		return fmt.Errorf("error creating inventory table: %v", err)
-	}
-	fmt.Println("✅ ตรวจสอบ/สร้างตาราง ic_inventory_barcode เรียบร้อยแล้ว")
-
-	// เปรียบเทียบและซิงค์ข้อมูล
-	fmt.Println("กำลังเปรียบเทียบและซิงค์ข้อมูลระหว่าง 2 ตาราง...")
-	insertCount, updateCount, err := s.apiClient.SyncInventoryTableData()
-	if err != nil {
-		return fmt.Errorf("error syncing inventory data: %v", err)
-	}
-
-	fmt.Println("✅ ซิงค์ข้อมูลระหว่าง temp table และ main table เรียบร้อยแล้ว")
-	fmt.Printf("📊 สถิติการซิงค์:\n")
-	fmt.Printf("   - ข้อมูลใน temp table: %d รายการ\n", insertCount+updateCount)
-	fmt.Printf("   - ข้อมูล active ใน main table: %d รายการ\n", insertCount)
-	fmt.Printf("   - ข้อมูล inactive ใน main table: %d รายการ\n", updateCount)
-
-	return nil
-}
+// End of product_sync.go

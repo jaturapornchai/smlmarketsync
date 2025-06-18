@@ -24,7 +24,7 @@ type ProductBarcode struct {
 	UnitName sql.NullString `json:"unit_name"`
 }
 
-// InventoryItem สำหรับข้อมูลที่จะ upload ไป ic_inventory_barcode_temp
+// InventoryItem สำหรับข้อมูลที่จะ upload ไป ic_inventory_barcode
 type InventoryItem struct {
 	IcCode   string `json:"ic_code"`
 	Barcode  string `json:"barcode"`
@@ -36,8 +36,8 @@ type InventoryItem struct {
 // BalanceItem สำหรับข้อมูล ic_balance
 type BalanceItem struct {
 	IcCode     string  `json:"ic_code"`
-	Warehouse  string  `json:"warehouse"`
-	UnitCode   string  `json:"ic_unit_code"`
+	Warehouse  string  `json:"warehouse"`    // wh_code in database
+	UnitCode   string  `json:"ic_unit_code"` // unit_code in database
 	BalanceQty float64 `json:"balance_qty"`
 }
 
@@ -62,6 +62,5 @@ type PriceItem struct {
 	CustCode   string  `json:"cust_code"`
 	SalePrice2 float64 `json:"sale_price2"`
 	CustGroup1 string  `json:"cust_group_1"`
-	CustGroup2 string  `json:"cust_group_2"`
 	PriceMode  string  `json:"price_mode"`
 }

@@ -20,11 +20,9 @@ func (api *APIClient) CreatePriceTable() error {
 			sale_type VARCHAR(20),
 			sale_price1 DECIMAL(15,6) DEFAULT 0,
 			status VARCHAR(20) DEFAULT 'active',
-			price_type VARCHAR(20),
-			cust_code VARCHAR(50),
+			price_type VARCHAR(20),			cust_code VARCHAR(50),
 			sale_price2 DECIMAL(15,6) DEFAULT 0,
 			cust_group_1 VARCHAR(50),
-			cust_group_2 VARCHAR(50),
 			price_mode VARCHAR(20),
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -77,7 +75,7 @@ func (api *APIClient) GetExistingPriceData() (map[string]map[string]interface{},
 	return priceMap, nil
 }
 
-// SyncPriceData ซิงค์ข้อมูลราคาสินค้าแบบ batch UPSERT
+// SyncPriceData ซิงค์ข้อมูลราคาสินค้าแบบ batch UPSERT (หยุดทันทีที่พบข้อผิดพลาด)
 func (api *APIClient) SyncPriceData(localData []interface{}, existingData map[string]map[string]interface{}) (int, int, error) {
 	if len(localData) == 0 {
 		return 0, 0, nil
@@ -109,9 +107,7 @@ func (api *APIClient) SyncPriceData(localData []interface{}, existingData map[st
 			if icCode == "" || icCode == "<nil>" {
 				skipCount++
 				continue
-			}
-
-			// แปลงข้อมูล
+			} // แปลงข้อมูล
 			fromQty := parseFloatValue(itemMap["from_qty"])
 			toQty := parseFloatValue(itemMap["to_qty"])
 			salePrice1 := parseFloatValue(itemMap["sale_price1"])
@@ -124,7 +120,6 @@ func (api *APIClient) SyncPriceData(localData []interface{}, existingData map[st
 			priceType := parseStringValue(itemMap["price_type"])
 			custCode := parseStringValue(itemMap["cust_code"])
 			custGroup1 := parseStringValue(itemMap["cust_group_1"])
-			custGroup2 := parseStringValue(itemMap["cust_group_2"])
 			priceMode := parseStringValue(itemMap["price_mode"])
 
 			// Escape single quotes
@@ -135,14 +130,13 @@ func (api *APIClient) SyncPriceData(localData []interface{}, existingData map[st
 			priceType = strings.ReplaceAll(priceType, "'", "''")
 			custCode = strings.ReplaceAll(custCode, "'", "''")
 			custGroup1 = strings.ReplaceAll(custGroup1, "'", "''")
-			custGroup2 = strings.ReplaceAll(custGroup2, "'", "''")
 			priceMode = strings.ReplaceAll(priceMode, "'", "''")
 
-			value := fmt.Sprintf("('%s', '%s', %s, %s, %s, %s, '%s', %s, '%s', '%s', '%s', %s, '%s', '%s', '%s')",
+			value := fmt.Sprintf("('%s', '%s', %s, %s, %s, %s, '%s', %s, '%s', '%s', '%s', %s, '%s', '%s')",
 				icCode, unitCode, fromQty, toQty,
 				nullableDate(fromDate), nullableDate(toDate),
 				saleType, salePrice1, status, priceType, custCode,
-				salePrice2, custGroup1, custGroup2, priceMode)
+				salePrice2, custGroup1, priceMode)
 
 			batchValues = append(batchValues, value)
 			validCount++
@@ -161,7 +155,7 @@ func (api *APIClient) SyncPriceData(localData []interface{}, existingData map[st
 	}
 
 	// ส่งข้อมูลแบบ batch
-	batchSize := 150
+	batchSize := 50
 	totalBatches := (len(batchValues) + batchSize - 1) / batchSize
 	successCount := 0
 
@@ -177,10 +171,11 @@ func (api *APIClient) SyncPriceData(localData []interface{}, existingData map[st
 		currentBatchSize := end - i
 
 		fmt.Printf("   📥 กำลังส่ง batch %d/%d (%d รายการ)...\n", batchNum, totalBatches, currentBatchSize)
-
 		err := api.executeBatchUpsertPrice(batchValues[i:end])
 		if err != nil {
 			fmt.Printf("❌ Batch %d ล้มเหลว: %v\n", batchNum, err)
+			// ถ้าพบข้อผิดพลาดให้หยุดทันที
+			return successCount, 0, fmt.Errorf("batch %d ล้มเหลว (ยกเลิกทั้งหมด): %v", batchNum, err)
 		} else {
 			successCount += currentBatchSize
 			fmt.Printf("✅ Batch %d สำเร็จ (%d รายการ)\n", batchNum, currentBatchSize)
@@ -199,16 +194,15 @@ func (api *APIClient) SyncPriceData(localData []interface{}, existingData map[st
 	return successCount, 0, nil
 }
 
-// executeBatchUpsertPrice ทำ batch UPSERT สำหรับราคาสินค้า
+// executeBatchUpsertPrice ทำ batch UPSERT สำหรับราคาสินค้า (ไม่มี retry, ถ้าล้มเหลวจะหยุดทันที)
 func (api *APIClient) executeBatchUpsertPrice(values []string) error {
 	if len(values) == 0 {
 		return nil
 	}
-
 	query := fmt.Sprintf(`
 		INSERT INTO ic_inventory_price (ic_code, unit_code, from_qty, to_qty, from_date, to_date, 
 										sale_type, sale_price1, status, price_type, cust_code, 
-										sale_price2, cust_group_1, cust_group_2, price_mode)
+										sale_price2, cust_group_1, price_mode)
 		VALUES %s
 		ON CONFLICT (ic_code, unit_code, from_qty, cust_code, price_type) 
 		DO UPDATE SET 
@@ -220,41 +214,34 @@ func (api *APIClient) executeBatchUpsertPrice(values []string) error {
 			status = EXCLUDED.status,
 			sale_price2 = EXCLUDED.sale_price2,
 			cust_group_1 = EXCLUDED.cust_group_1,
-			cust_group_2 = EXCLUDED.cust_group_2,
 			price_mode = EXCLUDED.price_mode,
 			updated_at = CURRENT_TIMESTAMP
-		WHERE ic_inventory_price.sale_price1 IS DISTINCT FROM EXCLUDED.sale_price1
+		WHERE ic_inventory_price.to_qty IS DISTINCT FROM EXCLUDED.to_qty
+		   OR ic_inventory_price.sale_price1 IS DISTINCT FROM EXCLUDED.sale_price1
 		   OR ic_inventory_price.sale_price2 IS DISTINCT FROM EXCLUDED.sale_price2
-		   OR ic_inventory_price.status IS DISTINCT FROM EXCLUDED.status`,
-		strings.Join(values, ","))
-
-	maxRetries := 3
+		   OR ic_inventory_price.status IS DISTINCT FROM EXCLUDED.status
+		   OR ic_inventory_price.from_date IS DISTINCT FROM EXCLUDED.from_date
+		   OR ic_inventory_price.to_date IS DISTINCT FROM EXCLUDED.to_date
+		   OR ic_inventory_price.sale_type IS DISTINCT FROM EXCLUDED.sale_type
+		   OR ic_inventory_price.cust_group_1 IS DISTINCT FROM EXCLUDED.cust_group_1
+		   OR ic_inventory_price.price_mode IS DISTINCT FROM EXCLUDED.price_mode;`,
+		strings.Join(values, ",")) // ทำเพียงครั้งเดียวไม่มี retry
 	var lastErr error
 
-	for retry := 0; retry < maxRetries; retry++ {
-		resp, err := api.ExecuteCommand(query)
-		if err != nil {
-			lastErr = fmt.Errorf("error executing batch upsert price (attempt %d/%d): %v", retry+1, maxRetries, err)
-			if retry < maxRetries-1 {
-				time.Sleep(time.Duration(retry+1) * 300 * time.Millisecond)
-				continue
-			}
-			return lastErr
-		}
-
-		if !resp.Success {
-			lastErr = fmt.Errorf("batch upsert price failed (attempt %d/%d): %s", retry+1, maxRetries, resp.Message)
-			if retry < maxRetries-1 {
-				time.Sleep(time.Duration(retry+1) * 300 * time.Millisecond)
-				continue
-			}
-			return lastErr
-		}
-
-		return nil
+	resp, err := api.ExecuteCommand(query)
+	if err != nil {
+		lastErr = fmt.Errorf("error executing batch upsert price: %v", err)
+		fmt.Printf("❌ ERROR: %v\n", lastErr)
+		return lastErr
 	}
 
-	return lastErr
+	if !resp.Success {
+		lastErr = fmt.Errorf("batch upsert price failed: %s", resp.Message)
+		fmt.Printf("❌ ERROR: %v\n", lastErr)
+		return lastErr
+	}
+
+	return nil
 }
 
 // Helper functions สำหรับ price sync

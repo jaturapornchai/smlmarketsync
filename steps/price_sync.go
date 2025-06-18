@@ -70,10 +70,9 @@ func (s *PriceSyncStep) ExecutePriceSync() error {
 // GetAllPricesFromSource ดึงข้อมูลราคาสินค้าทั้งหมดจากฐานข้อมูลต้นทาง
 func (s *PriceSyncStep) GetAllPricesFromSource() ([]interface{}, error) {
 	query := `
-		SELECT 
-			ic_code, unit_code, from_qty, to_qty, from_date, to_date, 
+		SELECT			ic_code, unit_code, from_qty, to_qty, from_date, to_date, 
 			sale_type, sale_price1, status, price_type, cust_code, 
-			sale_price2, cust_group_1, cust_group_2, price_mode
+			sale_price2, cust_group_1, price_mode
 		FROM ic_inventory_price
 		WHERE ic_code IS NOT NULL AND ic_code != ''
 		ORDER BY ic_code, unit_code, from_qty
@@ -102,13 +101,11 @@ func (s *PriceSyncStep) GetAllPricesFromSource() ([]interface{}, error) {
 			&fromDate,
 			&toDate,
 			&price.SaleType,
-			&salePrice1Str,
-			&price.Status,
+			&salePrice1Str, &price.Status,
 			&price.PriceType,
 			&price.CustCode,
 			&salePrice2Str,
 			&price.CustGroup1,
-			&price.CustGroup2,
 			&price.PriceMode,
 		)
 		if err != nil {
@@ -152,20 +149,18 @@ func (s *PriceSyncStep) GetAllPricesFromSource() ([]interface{}, error) {
 
 		// แปลงเป็น map สำหรับ API
 		priceMap := map[string]interface{}{
-			"ic_code":      price.IcCode,
-			"unit_code":    price.UnitCode,
-			"from_qty":     price.FromQty,
-			"to_qty":       price.ToQty,
-			"from_date":    price.FromDate,
-			"to_date":      price.ToDate,
-			"sale_type":    price.SaleType,
-			"sale_price1":  price.SalePrice1,
-			"status":       price.Status,
-			"price_type":   price.PriceType,
-			"cust_code":    price.CustCode,
-			"sale_price2":  price.SalePrice2,
+			"ic_code":     price.IcCode,
+			"unit_code":   price.UnitCode,
+			"from_qty":    price.FromQty,
+			"to_qty":      price.ToQty,
+			"from_date":   price.FromDate,
+			"to_date":     price.ToDate,
+			"sale_type":   price.SaleType,
+			"sale_price1": price.SalePrice1,
+			"status":      price.Status,
+			"price_type":  price.PriceType,
+			"cust_code":   price.CustCode, "sale_price2": price.SalePrice2,
 			"cust_group_1": price.CustGroup1,
-			"cust_group_2": price.CustGroup2,
 			"price_mode":   price.PriceMode,
 		}
 

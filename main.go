@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	fmt.Println("=== โปรแกรมซิงค์ข้อมูลสินค้าไป ic_inventory_barcode_temp ===")
+	fmt.Println("=== โปรแกรมซิงค์ข้อมูลสินค้าไป ic_inventory_barcode ===")
 
 	// เชื่อมต่อฐานข้อมูลต้นทาง (Read-only สำหรับดึงข้อมูล)
 	dbConfig := config.NewDatabaseConfig()
@@ -18,8 +18,17 @@ func main() {
 	}
 	defer db.Close()
 
-	// ขั้นตอนที่ 1-4: Sync สินค้า (Product/Inventory)
-	fmt.Println("\n🔄 เริ่มขั้นตอนการ sync สินค้า (Steps 1-4)")
+	// ขั้นตอนที่ 7: Sync Price
+	fmt.Println("\n🔄 เริ่มขั้นตอนการ sync ราคาสินค้า (Step 7)")
+	priceStep := steps.NewPriceSyncStep(db)
+	err = priceStep.ExecutePriceSync()
+	if err != nil {
+		log.Fatalf("❌ Error in price sync step: %v", err)
+	}
+	fmt.Println("✅ ขั้นตอนการ sync ราคาสินค้า เสร็จสิ้น")
+
+	// ขั้นตอนที่ 1-3: Sync สินค้า (Product/Inventory)
+	fmt.Println("\n🔄 เริ่มขั้นตอนการ sync สินค้า (Steps 1-3)")
 	productStep := steps.NewProductSyncStep(db)
 	err = productStep.ExecuteProductSync()
 	if err != nil {
@@ -44,15 +53,7 @@ func main() {
 		log.Fatalf("❌ Error in customer sync step: %v", err)
 	}
 	fmt.Println("✅ ขั้นตอนการ sync ลูกค้า เสร็จสิ้น")
-	// ขั้นตอนที่ 7: Sync Price
-	fmt.Println("\n🔄 เริ่มขั้นตอนการ sync ราคาสินค้า (Step 7)")
-	priceStep := steps.NewPriceSyncStep(db)
-	err = priceStep.ExecutePriceSync()
-	if err != nil {
-		log.Fatalf("❌ Error in price sync step: %v", err)
-	}
-	fmt.Println("✅ ขั้นตอนการ sync ราคาสินค้า เสร็จสิ้น")
 
 	fmt.Println("\n🎉 การซิงค์ข้อมูลเสร็จสิ้นทุกขั้นตอน!")
-	fmt.Println("ข้อมูลถูกซิงค์ครบทุกตาราง: ic_inventory_barcode_temp, ic_inventory_barcode, ic_balance, ar_customer, และ ic_inventory_price")
+	fmt.Println("ข้อมูลถูกซิงค์ครบทุกตาราง: ic_inventory_barcode, ic_balance, ar_customer, และ ic_inventory_price")
 }

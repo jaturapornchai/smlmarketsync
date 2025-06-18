@@ -42,22 +42,13 @@ func (s *CustomerSyncStep) ExecuteCustomerSync() error {
 		fmt.Println("ไม่มีข้อมูลลูกค้าใน local database")
 		return nil
 	}
-
 	fmt.Printf("ดึงข้อมูลลูกค้าจาก local ได้ %d รายการ\n", len(localData))
 
-	// 3. ดึงข้อมูลลูกค้าที่มีอยู่จาก API (สำหรับสถิติ)
-	fmt.Println("กำลังดึงข้อมูลลูกค้าที่มีอยู่จาก API...")
-	existingData, err := s.apiClient.GetExistingCustomerData()
-	if err != nil {
-		return fmt.Errorf("error getting existing customer data: %v", err)
-	}
-	fmt.Printf("พบข้อมูลลูกค้าใน API อยู่แล้ว %d รายการ\n", len(existingData))
-
-	// 4. ซิงค์ข้อมูลโดยส่งทั้งหมดแบบ batch UPSERT
-	fmt.Println("กำลังเปรียบเทียบและซิงค์ข้อมูลลูกค้า (batch UPSERT)...")
+	// 3. ซิงค์ข้อมูลโดยส่งทั้งหมดแบบ batch UPSERT
+	fmt.Println("กำลังซิงค์ข้อมูลลูกค้า (batch UPSERT)...")
 	fmt.Printf("📦 จะประมวลผลข้อมูล %d รายการ โดยใช้ batch UPSERT\n", len(localData))
 
-	insertCount, updateCount, err := s.apiClient.SyncCustomerData(localData, existingData)
+	totalCount, err := s.apiClient.SyncCustomerData(localData)
 	if err != nil {
 		return fmt.Errorf("error syncing customer data: %v", err)
 	}
@@ -65,9 +56,7 @@ func (s *CustomerSyncStep) ExecuteCustomerSync() error {
 	fmt.Printf("✅ ซิงค์ข้อมูลลูกค้าเรียบร้อยแล้ว (batch UPSERT)\n")
 	fmt.Printf("📊 สถิติการซิงค์ลูกค้า:\n")
 	fmt.Printf("   - ข้อมูลใน local: %d รายการ\n", len(localData))
-	fmt.Printf("   - Insert ใหม่: %d รายการ (แบบ batch)\n", insertCount)
-	fmt.Printf("   - Update ที่มีอยู่: %d รายการ (แบบ batch)\n", updateCount)
-	fmt.Printf("   - ไม่เปลี่ยนแปลง: %d รายการ\n", len(localData)-insertCount-updateCount)
+	fmt.Printf("   - ข้อมูลที่ซิงค์: %d รายการ (แบบ batch)\n", totalCount)
 
 	return nil
 }
@@ -90,16 +79,34 @@ func (s *CustomerSyncStep) GetAllCustomersFromSource() ([]interface{}, error) {
 
 	var customers []interface{}
 	count := 0
+	skippedCount := 0
 
 	for rows.Next() {
 		var customer types.CustomerItem
+		var priceLevel sql.NullString
+
 		err := rows.Scan(
 			&customer.Code,
-			&customer.PriceLevel,
+			&priceLevel,
 		)
 		if err != nil {
 			fmt.Printf("⚠️ ข้ามรายการที่อ่านไม่ได้: %v\n", err)
+			skippedCount++
 			continue
+		}
+
+		// Validate code is not empty
+		if customer.Code == "" {
+			fmt.Println("⚠️ ข้ามรายการที่มี code เป็นค่าว่าง")
+			skippedCount++
+			continue
+		}
+
+		// Handle NULL price_level
+		if priceLevel.Valid {
+			customer.PriceLevel = priceLevel.String
+		} else {
+			customer.PriceLevel = ""
 		}
 
 		// แปลงเป็น map สำหรับ API
@@ -121,6 +128,15 @@ func (s *CustomerSyncStep) GetAllCustomersFromSource() ([]interface{}, error) {
 		return nil, fmt.Errorf("error iterating customer rows: %v", err)
 	}
 
-	fmt.Printf("ดึงข้อมูลลูกค้าจากฐานข้อมูลต้นทางได้ %d รายการ\n", count)
+	fmt.Printf("ดึงข้อมูลลูกค้าจากฐานข้อมูลต้นทางได้ %d รายการ, ข้ามไป %d รายการ\n", count, skippedCount)
+
+	// แสดงตัวอย่างข้อมูล
+	if len(customers) > 0 {
+		fmt.Println("ตัวอย่างข้อมูลลูกค้า 5 รายการแรก:")
+		for i := 0; i < 5 && i < len(customers); i++ {
+			fmt.Printf("  %d: %v\n", i+1, customers[i])
+		}
+	}
+
 	return customers, nil
 }
