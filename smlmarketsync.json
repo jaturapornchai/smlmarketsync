@@ -1,0 +1,9 @@
+{
+  "database": {
+    "host": "192.168.2.213",
+    "port": 5432,
+    "user": "postgres",
+    "password": "sml",
+    "dbname": "sml1"
+  }
+}
