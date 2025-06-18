@@ -1,3 +1,47 @@
+/*
+API Client Library for SML Market Sync
+
+Table of Contents:
+================
+1. Core HTTP Client & Basic Types (Line ~35)
+   - APIClient struct & New function
+   - QueryRequest/QueryResponse types
+   - ExecuteSelect/ExecuteCommand/executeQuery
+
+2. Database Utility Functions (Line ~95)
+   - CheckTableExists
+   - DropTable
+
+3. Table Creation Functions (Line ~135)
+   - CreateInventoryTempTable
+   - CreateInventoryBarcodeTable
+   - CreateBalanceTable
+   - CreateCustomerTable
+   - CreateInventoryTable
+
+4. Product/Inventory Sync Functions (Line ~235)
+   - SyncInventoryBarcodeData
+   - GetSyncStatistics
+   - SyncInventoryTableData
+   - getInventoryCount
+
+5. Balance Sync Functions (Line ~325)
+   - GetExistingBalanceData
+   - SyncBalanceData
+   - executeBatchUpsertBalance
+   - insertSingleBalance/updateSingleBalance/upsertSingleBalance
+
+6. Customer Sync Functions (Line ~740)
+   - GetExistingCustomerData
+   - SyncCustomerData
+   - executeBatchUpsertCustomer
+
+7. Utility/Helper Functions (Line ~580)
+   - executeBatchInsert
+   - executeBatchUpsert
+   - executeBatchUpsertForUpdate
+*/
+
 package config
 
 import (
@@ -9,6 +53,10 @@ import (
 	"strings"
 	"time"
 )
+
+// ================================================================================
+// 1. CORE HTTP CLIENT & BASIC TYPES
+// ================================================================================
 
 const (
 	APIBaseURL      = "http://192.168.2.36:8008/v1"
@@ -86,9 +134,12 @@ func (api *APIClient) executeQuery(query string, endpoint string) (*QueryRespons
 	if resp.StatusCode != http.StatusOK {
 		return &response, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, response.Message)
 	}
-
 	return &response, nil
 }
+
+// ================================================================================
+// 2. DATABASE UTILITY FUNCTIONS  
+// ================================================================================
 
 // CheckDatabaseExists ตรวจสอบว่าตารางมีอยู่หรือไม่
 func (api *APIClient) CheckTableExists(tableName string) (bool, error) {
@@ -127,11 +178,15 @@ func (api *APIClient) DropTable(tableName string) error {
 	if !resp.Success {
 		return fmt.Errorf("failed to drop table %s: %s", tableName, resp.Message)
 	}
-
 	return nil
 }
 
-// CreateInventoryTempTable สร้างตาราง ic_inventory_barcode_temp
+// ================================================================================
+// 3. TABLE CREATION FUNCTIONS
+// ================================================================================
+
+// CreateInventoryTempTable - MOVED TO api_client_table.go
+/*
 func (api *APIClient) CreateInventoryTempTable() error {
 	query := `
 	CREATE TABLE ic_inventory_barcode_temp (
@@ -155,6 +210,7 @@ func (api *APIClient) CreateInventoryTempTable() error {
 
 	return nil
 }
+*/
 
 // CreateInventoryBarcodeTable สร้างตาราง ic_inventory_barcode ถ้าไม่มี
 func (api *APIClient) CreateInventoryBarcodeTable() error {
@@ -319,6 +375,10 @@ func (api *APIClient) GetSyncStatistics() (map[string]int, error) {
 
 	return stats, nil
 }
+
+// ================================================================================
+// 4. BALANCE SYNC FUNCTIONS
+// ================================================================================
 
 // GetExistingBalanceData ดึงข้อมูลทั้งหมดจากตาราง ic_balance บน API
 func (api *APIClient) GetExistingBalanceData() (map[string]map[string]float64, error) {
@@ -735,6 +795,10 @@ func (api *APIClient) executeBatchUpsertBalance(values []string) error {
 
 	return lastErr
 }
+
+// ================================================================================
+// 5. CUSTOMER SYNC FUNCTIONS
+// ================================================================================
 
 // SyncCustomerData ซิงค์ข้อมูลลูกค้าโดยส่งทั้งหมดแบบ batch UPSERT
 func (api *APIClient) SyncCustomerData(localData []interface{}, existingData map[string]string) (int, int, error) {
