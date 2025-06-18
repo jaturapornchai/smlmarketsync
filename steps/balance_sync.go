@@ -76,15 +76,36 @@ func (s *BalanceSyncStep) ExecuteBalanceSync() error {
 // GetAllBalanceFromSource ดึงข้อมูล balance ทั้งหมดจากฐานข้อมูลต้นทาง
 func (s *BalanceSyncStep) GetAllBalanceFromSource() ([]interface{}, error) {
 	query := `
-		SELECT ic_code, warehouse, ic_unit_code, balance_qty 
-		FROM ic_balance
-		WHERE ic_code IS NOT NULL AND ic_code != '' 
-		  AND warehouse IS NOT NULL AND warehouse != ''
-		  AND ic_unit_code IS NOT NULL AND ic_unit_code != ''
-		ORDER BY ic_code, warehouse, ic_unit_code
+		SELECT 
+			itd.item_code AS ic_code,
+			itd.wh_code AS warehouse,
+			ii.unit_standard AS ic_unit_code,
+			COALESCE(SUM(itd.calc_flag * (
+				CASE WHEN ((itd.trans_flag IN (70,54,60,58,310,12) OR (itd.trans_flag=66 AND itd.qty>0) OR (itd.trans_flag=14 AND itd.inquiry_type=0) OR (itd.trans_flag=48 AND itd.inquiry_type < 2)) 
+						  OR (itd.trans_flag IN (56,68,72,44) OR (itd.trans_flag=66 AND itd.qty<0) OR (itd.trans_flag=46 AND itd.inquiry_type IN (0,2))  
+							  OR (itd.trans_flag=16 AND itd.inquiry_type IN (0,2)) OR (itd.trans_flag=311 AND itd.inquiry_type=0)) 
+						  AND NOT (itd.doc_ref <> '' AND itd.is_pos = 1))
+					 THEN ROUND((itd.qty*itd.stand_value) / itd.divide_value, 2) 
+					 ELSE 0 
+				END)), 0) AS balance_qty
+		FROM ic_trans_detail itd
+		INNER JOIN ic_inventory ii ON ii.code = itd.item_code AND ii.item_type NOT IN (1,3)
+		WHERE itd.last_status = 0 
+		  AND itd.item_type <> 5  
+		  AND itd.is_doc_copy = 0
+		GROUP BY itd.item_code, itd.wh_code, ii.unit_standard
+		HAVING COALESCE(SUM(itd.calc_flag * (
+			CASE WHEN ((itd.trans_flag IN (70,54,60,58,310,12) OR (itd.trans_flag=66 AND itd.qty>0) OR (itd.trans_flag=14 AND itd.inquiry_type=0) OR (itd.trans_flag=48 AND itd.inquiry_type < 2)) 
+					  OR (itd.trans_flag IN (56,68,72,44) OR (itd.trans_flag=66 AND itd.qty<0) OR (itd.trans_flag=46 AND itd.inquiry_type IN (0,2))  
+						  OR (itd.trans_flag=16 AND itd.inquiry_type IN (0,2)) OR (itd.trans_flag=311 AND itd.inquiry_type=0)) 
+					  AND NOT (itd.doc_ref <> '' AND itd.is_pos = 1))
+				 THEN ROUND((itd.qty*itd.stand_value) / itd.divide_value, 2) 
+				 ELSE 0 
+			END)), 0) <> 0
+		ORDER BY itd.item_code, itd.wh_code
 	`
 
-	fmt.Println("กำลังดึงข้อมูล balance จาก ic_balance...")
+	fmt.Println("กำลังดึงข้อมูล balance จาก ic_trans_detail และ ic_inventory...")
 	rows, err := s.db.Query(query)
 	if err != nil {
 		return nil, fmt.Errorf("error executing balance query: %v", err)
