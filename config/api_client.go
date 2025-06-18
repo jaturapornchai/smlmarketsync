@@ -976,7 +976,7 @@ func (api *APIClient) SyncInventoryTableData() (int, int, error) {
 // getInventoryCount ดึงจำนวนข้อมูลตามสถานะ
 func (api *APIClient) getInventoryCount(status string) (int, error) {
 	query := fmt.Sprintf("SELECT COUNT(*) FROM ic_inventory_barcode WHERE status = '%s'", status)
-	
+
 	resp, err := api.ExecuteSelect(query)
 	if err != nil {
 		return 0, fmt.Errorf("error getting inventory count: %v", err)

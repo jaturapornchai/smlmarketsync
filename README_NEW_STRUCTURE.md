@@ -11,7 +11,8 @@ smlmarketsync/
 ├── smlmarketsync.json         # Database configuration
 ├── config/
 │   ├── database.go            # Database connection
-│   └── api_client.go          # API client functions
+│   ├── api_client.go          # API client functions
+│   └── price_api.go           # Price-specific API functions
 ├── types/
 │   └── types.go               # Shared data structures
 ├── steps/
