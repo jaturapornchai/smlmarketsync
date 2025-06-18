@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log"
 	"smlmarketsync/config"
-	"smlmarketsync/models"
+	"smlmarketsync/steps"
 )
 
 func main() {
@@ -18,57 +18,32 @@ func main() {
 	}
 	defer db.Close()
 
-	// สร้าง repository และ API client
-	productRepo := models.NewProductRepository(db)
-
-	// 1. เตรียมตาราง ic_inventory_barcode_temp ผ่าน API
-	fmt.Println("\n=== ขั้นตอนที่ 1: เตรียมตาราง ic_inventory_barcode_temp ผ่าน API ===")
-	err = productRepo.PrepareInventoryTempTableViaAPI()
+	// ขั้นตอนที่ 1-4: Sync สินค้า (Product/Inventory)
+	fmt.Println("\n🔄 เริ่มขั้นตอนการ sync สินค้า (Steps 1-4)")
+	productStep := steps.NewProductSyncStep(db)
+	err = productStep.ExecuteProductSync()
 	if err != nil {
-		log.Fatalf("Error preparing ic_inventory_barcode_temp table via API: %v", err)
+		log.Fatalf("❌ Error in product sync steps: %v", err)
 	}
+	fmt.Println("✅ ขั้นตอนการ sync สินค้า เสร็จสิ้น")
 
-	// 2. ดึงข้อมูลสินค้าทั้งหมดจากฐานข้อมูลต้นทาง
-	fmt.Println("\n=== ขั้นตอนที่ 2: ดึงข้อมูลสินค้าทั้งหมดจากฐานข้อมูลต้นทาง ===")
-	inventoryItems, err := productRepo.GetAllInventoryItemsFromSource()
+	// ขั้นตอนที่ 5: Sync Balance
+	fmt.Println("\n🔄 เริ่มขั้นตอนการ sync balance (Step 5)")
+	balanceStep := steps.NewBalanceSyncStep(db)
+	err = balanceStep.ExecuteBalanceSync()
 	if err != nil {
-		log.Fatalf("Error reading inventory items from source: %v", err)
+		log.Fatalf("❌ Error in balance sync step: %v", err)
 	}
+	fmt.Println("✅ ขั้นตอนการ sync balance เสร็จสิ้น")
 
-	if len(inventoryItems) == 0 {
-		fmt.Println("ไม่มีข้อมูลสินค้าในฐานข้อมูลต้นทาง")
-		return
-	}
-
-	fmt.Printf("พบข้อมูลสินค้าทั้งหมด %d รายการ\n", len(inventoryItems))
-	// 3. Upload ข้อมูลเป็น batch ผ่าน API
-	fmt.Println("\n=== ขั้นตอนที่ 3: Upload ข้อมูลไป ic_inventory_barcode_temp ผ่าน API ===")
-	batchSize := 500 // Upload ครั้งละ 500 รายการ เพื่อความเร็วและเสถียรภาพ
-	err = productRepo.UploadInventoryItemsBatchViaAPI(inventoryItems, batchSize)
+	// ขั้นตอนที่ 6: Sync Customer
+	fmt.Println("\n🔄 เริ่มขั้นตอนการ sync ลูกค้า (Step 6)")
+	customerStep := steps.NewCustomerSyncStep(db)
+	err = customerStep.ExecuteCustomerSync()
 	if err != nil {
-		log.Fatalf("Error uploading inventory items via API: %v", err)
+		log.Fatalf("❌ Error in customer sync step: %v", err)
 	}
-	// 4. ซิงค์ข้อมูลกับ main table
-	fmt.Println("\n=== ขั้นตอนที่ 4: ซิงค์ข้อมูลกับตาราง ic_inventory_barcode ===")
-	err = productRepo.SyncWithMainTable()
-	if err != nil {
-		log.Fatalf("Error syncing with main table: %v", err)
-	}
-	// 5. ซิงค์ข้อมูล balance กับ API
-	fmt.Println("\n=== ขั้นตอนที่ 5: ซิงค์ข้อมูล balance กับ API ===")
-	err = productRepo.SyncBalanceWithAPI()
-	if err != nil {
-		log.Fatalf("Error syncing balance with API: %v", err)
-	}
-
-	// 6. ซิงค์ข้อมูลลูกค้ากับ API
-	fmt.Println("\n=== ขั้นตอนที่ 6: ซิงค์ข้อมูลลูกค้ากับ API ===")
-	err = productRepo.SyncCustomerWithAPI()
-	if err != nil {
-		log.Fatalf("Error syncing customer with API: %v", err)
-	}
-
-	fmt.Printf("\n✅ การซิงค์ข้อมูลเสร็จสิ้นทุกขั้นตอน!\n")
-	fmt.Printf("รวมจำนวนสินค้าที่ประมวลผล: %d รายการ\n", len(inventoryItems))
+	fmt.Println("✅ ขั้นตอนการ sync ลูกค้า เสร็จสิ้น")
+	fmt.Println("\n🎉 การซิงค์ข้อมูลเสร็จสิ้นทุกขั้นตอน!")
 	fmt.Println("ข้อมูลถูกซิงค์ครบทุกตาราง: ic_inventory_barcode_temp, ic_inventory_barcode, ic_balance, และ ar_customer")
 }

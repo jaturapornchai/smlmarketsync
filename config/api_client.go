@@ -35,7 +35,7 @@ type QueryResponse struct {
 func NewAPIClient() *APIClient {
 	return &APIClient{
 		client: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: 120 * time.Second, // เพิ่มเป็น 2 นาที สำหรับ batch ขนาดใหญ่
 		},
 		baseURL: APIBaseURL,
 	}
@@ -740,13 +740,13 @@ func (api *APIClient) executeBatchUpsertBalance(values []string) error {
 func (api *APIClient) SyncCustomerData(localData []interface{}, existingData map[string]string) (int, int, error) {
 	totalCount := len(localData)
 	skipCount := 0
-	
+
 	fmt.Printf("🚀 เริ่มส่งข้อมูลลูกค้าทั้งหมด %d รายการแบบ batch UPSERT\n", totalCount)
-	
+
 	// เตรียมข้อมูลสำหรับ batch upsert
 	var batchValues []string
 	validCount := 0
-	
+
 	// Process local data และเตรียม batch values
 	for i, item := range localData {
 		itemMap, ok := item.(map[string]interface{})
@@ -773,7 +773,7 @@ func (api *APIClient) SyncCustomerData(localData []interface{}, existingData map
 		// Escape single quotes สำหรับ SQL
 		codeEsc := strings.ReplaceAll(code, "'", "''")
 		priceLevelEsc := strings.ReplaceAll(priceLevel, "'", "''")
-		
+
 		// เตรียม value สำหรับ batch insert
 		value := fmt.Sprintf("('%s', '%s')", codeEsc, priceLevelEsc)
 		batchValues = append(batchValues, value)
@@ -784,31 +784,31 @@ func (api *APIClient) SyncCustomerData(localData []interface{}, existingData map
 			fmt.Printf("⏳ เตรียมข้อมูลแล้ว %d/%d รายการ\n", i+1, totalCount)
 		}
 	}
-	
+
 	fmt.Printf("📦 เตรียมข้อมูลเสร็จ: %d รายการที่ใช้ได้, ข้าม %d รายการ\n", validCount, skipCount)
-	
+
 	if len(batchValues) == 0 {
 		return 0, 0, fmt.Errorf("ไม่มีข้อมูลที่ถูกต้องสำหรับส่ง")
 	}
-	
+
 	// Execute batch UPSERT
 	batchSize := 200 // ทำทีละ 200 รายการสำหรับลูกค้า (ข้อมูลน้อยกว่า balance)
 	totalBatches := (len(batchValues) + batchSize - 1) / batchSize
 	successCount := 0
-	
+
 	fmt.Printf("🚀 กำลังส่งข้อมูล %d รายการแบบ batch UPSERT (ครั้งละ %d รายการ)\n", len(batchValues), batchSize)
-	
+
 	for i := 0; i < len(batchValues); i += batchSize {
 		end := i + batchSize
 		if end > len(batchValues) {
 			end = len(batchValues)
 		}
-		
+
 		batchNum := (i / batchSize) + 1
 		currentBatchSize := end - i
-		
+
 		fmt.Printf("   📥 กำลังส่ง batch %d/%d (%d รายการ)...\n", batchNum, totalBatches, currentBatchSize)
-		
+
 		err := api.executeBatchUpsertCustomer(batchValues[i:end])
 		if err != nil {
 			fmt.Printf("❌ Batch %d ล้มเหลว: %v\n", batchNum, err)
@@ -817,13 +817,13 @@ func (api *APIClient) SyncCustomerData(localData []interface{}, existingData map
 			successCount += currentBatchSize
 			fmt.Printf("✅ Batch %d สำเร็จ (%d รายการ)\n", batchNum, currentBatchSize)
 		}
-		
+
 		// หน่วงเวลาเล็กน้อยระหว่าง batch
 		if batchNum < totalBatches {
 			time.Sleep(100 * time.Millisecond)
 		}
 	}
-	
+
 	// สรุปผลลัพธ์
 	fmt.Printf("\n📊 สรุปการซิงค์ลูกค้า:\n")
 	fmt.Printf("   - ส่งสำเร็จ: %d รายการ\n", successCount)
@@ -838,7 +838,7 @@ func (api *APIClient) executeBatchUpsertCustomer(values []string) error {
 	if len(values) == 0 {
 		return nil
 	}
-	
+
 	// ใช้ PostgreSQL syntax: INSERT ... ON CONFLICT พร้อมตรวจสอบข้อมูลเปลี่ยนแปลงหรือไม่
 	query := fmt.Sprintf(`
 		INSERT INTO ar_customer (code, price_level)
@@ -853,7 +853,7 @@ func (api *APIClient) executeBatchUpsertCustomer(values []string) error {
 	// เพิ่ม retry mechanism สำหรับ API call
 	maxRetries := 3
 	var lastErr error
-	
+
 	for retry := 0; retry < maxRetries; retry++ {
 		resp, err := api.ExecuteCommand(query)
 		if err != nil {
@@ -864,7 +864,7 @@ func (api *APIClient) executeBatchUpsertCustomer(values []string) error {
 			}
 			return lastErr
 		}
-		
+
 		if !resp.Success {
 			lastErr = fmt.Errorf("batch upsert customer failed (attempt %d/%d): %s", retry+1, maxRetries, resp.Message)
 			if retry < maxRetries-1 {
@@ -873,50 +873,157 @@ func (api *APIClient) executeBatchUpsertCustomer(values []string) error {
 			}
 			return lastErr
 		}
-		
+
 		// Success!
 		return nil
 	}
-	
+
 	return lastErr
 }
 
 // GetExistingCustomerData ดึงข้อมูลลูกค้าที่มีอยู่จาก API
 func (api *APIClient) GetExistingCustomerData() (map[string]string, error) {
 	query := "SELECT code, price_level FROM ar_customer"
-	
+
 	resp, err := api.ExecuteSelect(query)
 	if err != nil {
 		return nil, fmt.Errorf("error fetching existing customer data: %v", err)
 	}
-	
+
 	if !resp.Success {
 		return nil, fmt.Errorf("failed to fetch existing customer data: %s", resp.Message)
 	}
-	
+
 	customerMap := make(map[string]string)
-	
+
 	// แปลง response data เป็น slice of map
 	if data, ok := resp.Data.([]interface{}); ok {
 		for _, row := range data {
 			if rowMap, ok := row.(map[string]interface{}); ok {
 				code := ""
 				priceLevel := ""
-				
+
 				if codeVal, exists := rowMap["code"]; exists && codeVal != nil {
 					code = fmt.Sprintf("%v", codeVal)
 				}
-				
+
 				if priceLevelVal, exists := rowMap["price_level"]; exists && priceLevelVal != nil {
 					priceLevel = fmt.Sprintf("%v", priceLevelVal)
 				}
-				
+
 				if code != "" {
 					customerMap[code] = priceLevel
 				}
 			}
 		}
 	}
-	
+
 	return customerMap, nil
+}
+
+// SyncInventoryTableData ซิงค์ข้อมูลระหว่าง temp table และ main table
+func (api *APIClient) SyncInventoryTableData() (int, int, error) {
+	// ใช้ PostgreSQL MERGE หรือ INSERT ... ON CONFLICT เพื่อซิงค์ข้อมูล
+	query := `
+		-- เริ่มจาก temp table แล้วซิงค์กับ main table
+		INSERT INTO ic_inventory_barcode (ic_code, barcode, name, unit_code, unit_name, status, created_at, updated_at)
+		SELECT ic_code, barcode, name, unit_code, unit_name, 'active', created_at, CURRENT_TIMESTAMP
+		FROM ic_inventory_barcode_temp
+		ON CONFLICT (barcode) 
+		DO UPDATE SET 
+			ic_code = EXCLUDED.ic_code,
+			name = EXCLUDED.name,
+			unit_code = EXCLUDED.unit_code,
+			unit_name = EXCLUDED.unit_name,
+			status = 'active',
+			updated_at = CURRENT_TIMESTAMP
+		WHERE ic_inventory_barcode.ic_code IS DISTINCT FROM EXCLUDED.ic_code
+		   OR ic_inventory_barcode.name IS DISTINCT FROM EXCLUDED.name
+		   OR ic_inventory_barcode.unit_code IS DISTINCT FROM EXCLUDED.unit_code
+		   OR ic_inventory_barcode.unit_name IS DISTINCT FROM EXCLUDED.unit_name
+		   OR ic_inventory_barcode.status IS DISTINCT FROM 'active';
+		
+		-- อัปเดตข้อมูลที่ไม่มีใน temp table ให้เป็น inactive
+		UPDATE ic_inventory_barcode 
+		SET status = 'inactive', updated_at = CURRENT_TIMESTAMP
+		WHERE barcode NOT IN (SELECT barcode FROM ic_inventory_barcode_temp)
+		  AND status = 'active';
+	`
+
+	resp, err := api.ExecuteCommand(query)
+	if err != nil {
+		return 0, 0, fmt.Errorf("error syncing inventory data: %v", err)
+	}
+
+	if !resp.Success {
+		return 0, 0, fmt.Errorf("failed to sync inventory data: %s", resp.Message)
+	}
+
+	// ดึงสถิติหลังจากซิงค์
+	activeCount, err := api.getInventoryCount("active")
+	if err != nil {
+		return 0, 0, err
+	}
+
+	inactiveCount, err := api.getInventoryCount("inactive")
+	if err != nil {
+		return 0, 0, err
+	}
+
+	return activeCount, inactiveCount, nil
+}
+
+// getInventoryCount ดึงจำนวนข้อมูลตามสถานะ
+func (api *APIClient) getInventoryCount(status string) (int, error) {
+	query := fmt.Sprintf("SELECT COUNT(*) FROM ic_inventory_barcode WHERE status = '%s'", status)
+	
+	resp, err := api.ExecuteSelect(query)
+	if err != nil {
+		return 0, fmt.Errorf("error getting inventory count: %v", err)
+	}
+
+	if !resp.Success {
+		return 0, fmt.Errorf("failed to get inventory count: %s", resp.Message)
+	}
+
+	// แปลงผลลัพธ์
+	if data, ok := resp.Data.([]interface{}); ok && len(data) > 0 {
+		if row, ok := data[0].(map[string]interface{}); ok {
+			if countVal, exists := row["count"]; exists {
+				if count, ok := countVal.(float64); ok {
+					return int(count), nil
+				}
+			}
+		}
+	}
+
+	return 0, nil
+}
+
+// CreateInventoryTable สร้างตาราง ic_inventory_barcode
+func (api *APIClient) CreateInventoryTable() error {
+	query := `
+		CREATE TABLE IF NOT EXISTS ic_inventory_barcode (
+			ic_code VARCHAR(50) NOT NULL,
+			barcode VARCHAR(100) NOT NULL,
+			name VARCHAR(255),
+			unit_code VARCHAR(20),
+			unit_name VARCHAR(100),
+			status VARCHAR(20) DEFAULT 'active',
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (barcode)
+		)
+	`
+
+	resp, err := api.ExecuteCommand(query)
+	if err != nil {
+		return fmt.Errorf("error creating inventory table: %v", err)
+	}
+
+	if !resp.Success {
+		return fmt.Errorf("failed to create inventory table: %s", resp.Message)
+	}
+
+	return nil
 }
