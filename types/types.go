@@ -49,6 +49,7 @@ type CustomerItem struct {
 
 // PriceItem สำหรับข้อมูล ic_inventory_price
 type PriceItem struct {
+	rowOrderRef int     `json:"row_order_ref"`
 	IcCode     string  `json:"ic_code"`
 	UnitCode   string  `json:"unit_code"`
 	FromQty    float64 `json:"from_qty"`

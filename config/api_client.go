@@ -25,7 +25,6 @@ Table of Contents:
    - getInventoryCount
 
 5. Balance Sync Functions
-   - GetExistingBalanceData
    - SyncBalanceData
    - executeBatchUpsertBalance
    - insertSingleBalance/updateSingleBalance/upsertSingleBalance
@@ -436,55 +435,7 @@ func (api *APIClient) getInventoryCount() (int, error) {
 // 5. BALANCE SYNC FUNCTIONS
 // ================================================================================
 
-// GetExistingBalanceData ดึงข้อมูล balance ที่มีอยู่ในระบบ (สำหรับข้อมูลเท่านั้น ไม่ได้ใช้ในการเปรียบเทียบแล้ว)
-func (api *APIClient) GetExistingBalanceData() (map[string]map[string]float64, error) {
-	query := "SELECT ic_code, wh_code, unit_code, balance_qty FROM ic_balance"
-	resp, err := api.ExecuteSelect(query)
-	if err != nil {
-		return nil, err
-	}
 
-	if !resp.Success {
-		return nil, fmt.Errorf("failed to get existing balance data: %s", resp.Message)
-	}
-
-	// สร้าง map เพื่อเก็บข้อมูล
-	result := make(map[string]map[string]float64)
-
-	// วนลูปผลลัพธ์
-	data, ok := resp.Data.([]interface{})
-	if !ok {
-		return result, nil // ไม่มีข้อมูล
-	}
-
-	for _, item := range data {
-		row, ok := item.(map[string]interface{})
-		if !ok {
-			continue
-		}
-
-		icCode, ok1 := row["ic_code"].(string)
-		whCode, ok2 := row["wh_code"].(string)
-		unitCode, ok3 := row["unit_code"].(string)
-		balanceQty, ok4 := row["balance_qty"].(float64)
-
-		if !ok1 || !ok2 || !ok3 || !ok4 {
-			continue
-		}
-
-		// สร้าง key สำหรับ product และ warehouse
-		productKey := icCode
-		warehouseKey := whCode + ":" + unitCode
-
-		// เพิ่มข้อมูลลงใน map
-		if _, exists := result[productKey]; !exists {
-			result[productKey] = make(map[string]float64)
-		}
-		result[productKey][warehouseKey] = balanceQty
-	}
-
-	return result, nil
-}
 
 // SyncBalanceData ซิงค์ข้อมูล balance โดยใช้ batch upsert
 func (api *APIClient) SyncBalanceData(localData []interface{}) (int, error) {

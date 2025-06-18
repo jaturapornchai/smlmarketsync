@@ -11,6 +11,7 @@ func (api *APIClient) CreatePriceTable() error {
 	query := `
 		CREATE TABLE IF NOT EXISTS ic_inventory_price (
 			id SERIAL PRIMARY KEY,
+			row_order_ref INT DEFAULT 0,
 			ic_code VARCHAR(50) NOT NULL,
 			unit_code VARCHAR(20),
 			from_qty DECIMAL(15,6) DEFAULT 0,
@@ -24,9 +25,7 @@ func (api *APIClient) CreatePriceTable() error {
 			sale_price2 DECIMAL(15,6) DEFAULT 0,
 			cust_group_1 VARCHAR(50),
 			price_mode VARCHAR(20),
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			UNIQUE(ic_code, unit_code, from_qty, cust_code, price_type)
+			INDEX idx_row_order_ref (row_order_ref)
 		)
 	`
 
@@ -42,112 +41,74 @@ func (api *APIClient) CreatePriceTable() error {
 	return nil
 }
 
-// GetExistingPriceData ดึงข้อมูลราคาสินค้าที่มีอยู่จาก API
-func (api *APIClient) GetExistingPriceData() (map[string]map[string]interface{}, error) {
-	query := "SELECT ic_code, unit_code, from_qty, sale_price1 FROM ic_inventory_price"
 
-	resp, err := api.ExecuteSelect(query)
-	if err != nil {
-		return nil, fmt.Errorf("error fetching existing price data: %v", err)
+
+// SyncPriceData ซิงค์ข้อมูลราคาสินค้าแบบ batch (แยกเป็นการเพิ่มและอัปเดต)
+func (api *APIClient) SyncPriceData(syncIds []int, inserts []interface{}, updates []interface{}, deletes []interface{}) {
+	if len(inserts) == 0 && len(updates) == 0 && len(deletes) == 0 && len(syncIds) == 0 {
+		fmt.Println("ℹ️ ไม่มีข้อมูลที่ต้องดำเนินการ")
+		return
 	}
 
-	if !resp.Success {
-		return nil, fmt.Errorf("failed to fetch existing price data: %s", resp.Message)
+	// 1. ลบข้อมูลจาก sml_market_sync ด้วย syncIds
+	if len(syncIds) > 0 {
+		_, err := api.deleteFromTable("sml_market_sync", "id", toInterfaceSlice(syncIds), false)
+		if err != nil {
+			return
+		}
+	} else {
+		fmt.Println("✅ ไม่มีข้อมูลที่ต้องลบจาก sml_market_sync")
 	}
 
-	priceMap := make(map[string]map[string]interface{})
-
-	// แปลง response data เป็น slice of map
-	if data, ok := resp.Data.([]interface{}); ok {
-		for _, row := range data {
-			if rowMap, ok := row.(map[string]interface{}); ok {
-				icCode := fmt.Sprintf("%v", rowMap["ic_code"])
-				unitCode := fmt.Sprintf("%v", rowMap["unit_code"])
-				fromQty := fmt.Sprintf("%v", rowMap["from_qty"])
-
-				// สร้าง composite key
-				key := fmt.Sprintf("%s|%s|%s", icCode, unitCode, fromQty)
-				priceMap[key] = rowMap
+	// 2. ลบข้อมูลจาก ic_inventory_price ที่ไม่ต้องการ
+	if len(deletes) > 0 {
+		fmt.Println("🗑️ กำลังลบข้อมูลที่ไม่ต้องการจาก ic_inventory_price")
+		
+		// รวบรวม row_order_ref สำหรับการลบ
+		var rowOrderRefs []interface{}
+		for _, item := range deletes {
+			if itemMap, ok := item.(map[string]interface{}); ok {
+				if rowOrderRef, exists := itemMap["row_order_ref"]; exists && rowOrderRef != nil {
+					rowOrderRefs = append(rowOrderRefs, fmt.Sprintf("%v", rowOrderRef))
+				}
 			}
 		}
-	}
-
-	return priceMap, nil
-}
-
-// SyncPriceData ซิงค์ข้อมูลราคาสินค้าแบบ batch UPSERT (หยุดทันทีที่พบข้อผิดพลาด)
-func (api *APIClient) SyncPriceData(localData []interface{}, existingData map[string]map[string]interface{}) (int, int, error) {
-	if len(localData) == 0 {
-		return 0, 0, nil
-	}
-
-	fmt.Printf("🚀 เริ่มส่งข้อมูลราคาสินค้าทั้งหมด %d รายการแบบ batch UPSERT\n", len(localData))
-
-	// เตรียมข้อมูลสำหรับ batch
-	var batchValues []string
-	validCount := 0
-	skipCount := 0
-
-	// Debug: แสดงตัวอย่างข้อมูลแรกๆ
-	debugCount := 0
-	for _, item := range localData {
-		if itemMap, ok := item.(map[string]interface{}); ok && debugCount < 3 {
-			debugCount++
-			fmt.Printf("🔍 Debug #%d: ic_code='%v', unit_code='%v', from_qty=%v, sale_price1=%v\n",
-				debugCount, itemMap["ic_code"], itemMap["unit_code"], itemMap["from_qty"], itemMap["sale_price1"])
+		
+		if len(rowOrderRefs) > 0 {
+			_, err := api.deleteFromTable("ic_inventory_price", "row_order_ref", rowOrderRefs, true)
+			if err != nil {
+				return
+			}
+		} else {
+			fmt.Println("⚠️ ไม่พบ row_order_ref ที่ต้องการลบ")
 		}
+	} else {
+		fmt.Println("✅ ไม่มีข้อมูลที่ต้องลบจาก ic_inventory_price")
 	}
-
-	for i, item := range localData {
-		if itemMap, ok := item.(map[string]interface{}); ok {
-			icCode := fmt.Sprintf("%v", itemMap["ic_code"])
-			unitCode := fmt.Sprintf("%v", itemMap["unit_code"])
-
-			// ตรวจสอบข้อมูลจำเป็น
-			if icCode == "" || icCode == "<nil>" {
-				skipCount++
-				continue
-			} // แปลงข้อมูล
-			fromQty := parseFloatValue(itemMap["from_qty"])
-			toQty := parseFloatValue(itemMap["to_qty"])
-			salePrice1 := parseFloatValue(itemMap["sale_price1"])
-			salePrice2 := parseFloatValue(itemMap["sale_price2"])
-
-			fromDate := parseStringValue(itemMap["from_date"])
-			toDate := parseStringValue(itemMap["to_date"])
-			saleType := parseStringValue(itemMap["sale_type"])
-			status := parseStringValue(itemMap["status"])
-			priceType := parseStringValue(itemMap["price_type"])
-			custCode := parseStringValue(itemMap["cust_code"])
-			custGroup1 := parseStringValue(itemMap["cust_group_1"])
-			priceMode := parseStringValue(itemMap["price_mode"])
-
-			// Escape single quotes
-			icCode = strings.ReplaceAll(icCode, "'", "''")
-			unitCode = strings.ReplaceAll(unitCode, "'", "''")
-			saleType = strings.ReplaceAll(saleType, "'", "''")
-			status = strings.ReplaceAll(status, "'", "''")
-			priceType = strings.ReplaceAll(priceType, "'", "''")
-			custCode = strings.ReplaceAll(custCode, "'", "''")
-			custGroup1 = strings.ReplaceAll(custGroup1, "'", "''")
-			priceMode = strings.ReplaceAll(priceMode, "'", "''")
-
-			value := fmt.Sprintf("('%s', '%s', %s, %s, %s, %s, '%s', %s, '%s', '%s', '%s', %s, '%s', '%s')",
-				icCode, unitCode, fromQty, toQty,
-				nullableDate(fromDate), nullableDate(toDate),
-				saleType, salePrice1, status, priceType, custCode,
-				salePrice2, custGroup1, priceMode)
-
-			batchValues = append(batchValues, value)
-			validCount++
+	
+	// 3. ประมวลผล inserts แบบ batch (ครั้งละ 100 รายการ)
+	insertCount := 0
+	if len(inserts) > 0 {
+		count, err := api.processPriceBatch(inserts, 100, false)
+		if err != nil {
+			return
 		}
-
-		// แสดงความคืบหน้า
-		if (i+1)%2000 == 0 {
-			fmt.Printf("⏳ เตรียมข้อมูลแล้ว %d/%d รายการ\n", i+1, len(localData))
-		}
+		insertCount = count
+	} else {
+		fmt.Println("✅ ไม่มีข้อมูลใหม่ที่ต้องเพิ่ม")
 	}
-
+	// 4. ประมวลผล updates แบบ batch (ครั้งละ 100 รายการ)
+	updateCount := 0
+	if len(updates) > 0 {
+		count, err := api.processPriceBatch(updates, 100, true)
+		if err != nil {
+			return
+		}
+		updateCount = count
+	} else {
+		fmt.Println("✅ ไม่มีข้อมูลที่ต้องอัปเดต")
+	}
+	// แสดงผลสรุปข้อมูลที่เตรียมไว้
 	fmt.Printf("📦 เตรียมข้อมูลเสร็จ: %d รายการที่ใช้ได้, ข้าม %d รายการ\n", validCount, skipCount)
 
 	if len(batchValues) == 0 {
@@ -159,7 +120,7 @@ func (api *APIClient) SyncPriceData(localData []interface{}, existingData map[st
 	totalBatches := (len(batchValues) + batchSize - 1) / batchSize
 	successCount := 0
 
-	fmt.Printf("🚀 กำลังส่งข้อมูล %d รายการแบบ batch UPSERT (ครั้งละ %d รายการ)\n", len(batchValues), batchSize)
+	fmt.Printf("🚀 กำลังส่งข้อมูล %d รายการแบบ batch INSERT (ครั้งละ %d รายการ)\n", len(batchValues), batchSize)
 
 	for i := 0; i < len(batchValues); i += batchSize {
 		end := i + batchSize
@@ -171,7 +132,7 @@ func (api *APIClient) SyncPriceData(localData []interface{}, existingData map[st
 		currentBatchSize := end - i
 
 		fmt.Printf("   📥 กำลังส่ง batch %d/%d (%d รายการ)...\n", batchNum, totalBatches, currentBatchSize)
-		err := api.executeBatchUpsertPrice(batchValues[i:end])
+		err := api.executeBatchInsertPrice(batchValues[i:end])
 		if err != nil {
 			fmt.Printf("❌ Batch %d ล้มเหลว: %v\n", batchNum, err)
 			// ถ้าพบข้อผิดพลาดให้หยุดทันที
@@ -186,16 +147,16 @@ func (api *APIClient) SyncPriceData(localData []interface{}, existingData map[st
 		}
 	}
 
+	// สรุปผลการดำเนินการ
 	fmt.Printf("\n📊 สรุปการซิงค์ราคาสินค้า:\n")
-	fmt.Printf("   - ส่งสำเร็จ: %d รายการ\n", successCount)
-	fmt.Printf("   - ข้ามเนื่องจากข้อมูลไม่ครบ: %d รายการ\n", skipCount)
-	fmt.Printf("   - ล้มเหลว: %d รายการ\n", validCount-successCount)
-
-	return successCount, 0, nil
+	fmt.Printf("   - ลบข้อมูลจาก sml_market_sync: %d รายการ\n", len(syncIds))
+	fmt.Printf("   - ลบข้อมูลจาก ic_inventory_price: %d รายการ\n", len(deletes))
+	fmt.Printf("   - เพิ่มข้อมูลใหม่: %d/%d รายการ\n", insertCount, len(inserts))
+	fmt.Printf("   - อัปเดตข้อมูล: %d/%d รายการ\n", updateCount, len(updates))
 }
 
-// executeBatchUpsertPrice ทำ batch UPSERT สำหรับราคาสินค้า (ไม่มี retry, ถ้าล้มเหลวจะหยุดทันที)
-func (api *APIClient) executeBatchUpsertPrice(values []string) error {
+// executeBatchInsertPrice ทำ batch INSERT สำหรับราคาสินค้า (ไม่มี retry, ถ้าล้มเหลวจะหยุดทันที)
+func (api *APIClient) executeBatchInsertPrice(values []string) error {
 	if len(values) == 0 {
 		return nil
 	}
@@ -203,40 +164,19 @@ func (api *APIClient) executeBatchUpsertPrice(values []string) error {
 		INSERT INTO ic_inventory_price (ic_code, unit_code, from_qty, to_qty, from_date, to_date, 
 										sale_type, sale_price1, status, price_type, cust_code, 
 										sale_price2, cust_group_1, price_mode)
-		VALUES %s
-		ON CONFLICT (ic_code, unit_code, from_qty, cust_code, price_type) 
-		DO UPDATE SET 
-			to_qty = EXCLUDED.to_qty,
-			from_date = EXCLUDED.from_date,
-			to_date = EXCLUDED.to_date,
-			sale_type = EXCLUDED.sale_type,
-			sale_price1 = EXCLUDED.sale_price1,
-			status = EXCLUDED.status,
-			sale_price2 = EXCLUDED.sale_price2,
-			cust_group_1 = EXCLUDED.cust_group_1,
-			price_mode = EXCLUDED.price_mode,
-			updated_at = CURRENT_TIMESTAMP
-		WHERE ic_inventory_price.to_qty IS DISTINCT FROM EXCLUDED.to_qty
-		   OR ic_inventory_price.sale_price1 IS DISTINCT FROM EXCLUDED.sale_price1
-		   OR ic_inventory_price.sale_price2 IS DISTINCT FROM EXCLUDED.sale_price2
-		   OR ic_inventory_price.status IS DISTINCT FROM EXCLUDED.status
-		   OR ic_inventory_price.from_date IS DISTINCT FROM EXCLUDED.from_date
-		   OR ic_inventory_price.to_date IS DISTINCT FROM EXCLUDED.to_date
-		   OR ic_inventory_price.sale_type IS DISTINCT FROM EXCLUDED.sale_type
-		   OR ic_inventory_price.cust_group_1 IS DISTINCT FROM EXCLUDED.cust_group_1
-		   OR ic_inventory_price.price_mode IS DISTINCT FROM EXCLUDED.price_mode;`,
+		VALUES %s;`,
 		strings.Join(values, ",")) // ทำเพียงครั้งเดียวไม่มี retry
 	var lastErr error
 
 	resp, err := api.ExecuteCommand(query)
 	if err != nil {
-		lastErr = fmt.Errorf("error executing batch upsert price: %v", err)
+		lastErr = fmt.Errorf("error executing batch insert price: %v", err)
 		fmt.Printf("❌ ERROR: %v\n", lastErr)
 		return lastErr
 	}
 
 	if !resp.Success {
-		lastErr = fmt.Errorf("batch upsert price failed: %s", resp.Message)
+		lastErr = fmt.Errorf("batch insert price failed: %s", resp.Message)
 		fmt.Printf("❌ ERROR: %v\n", lastErr)
 		return lastErr
 	}
@@ -275,4 +215,179 @@ func nullableDate(dateStr string) string {
 		return "NULL"
 	}
 	return fmt.Sprintf("'%s'", dateStr)
+}
+
+// prepPriceDataValues เตรียมข้อมูลราคาสินค้าให้อยู่ในรูปแบบที่พร้อมสำหรับคำสั่ง SQL
+func prepPriceDataValues(item map[string]interface{}) (string, error) {
+	// ตรวจสอบว่ามีข้อมูลจำเป็นครบหรือไม่
+	if item["ic_code"] == nil || item["unit_code"] == nil {
+		return "", fmt.Errorf("ไม่มี ic_code หรือ unit_code")
+	}
+	
+	// แปลงข้อมูลเป็นรูปแบบสำหรับ SQL
+	icCode := fmt.Sprintf("%v", item["ic_code"])
+	unitCode := fmt.Sprintf("%v", item["unit_code"])
+	fromQty := parseFloatValue(item["from_qty"])
+	toQty := parseFloatValue(item["to_qty"])
+	fromDate := parseStringValue(item["from_date"])
+	toDate := parseStringValue(item["to_date"])
+	saleType := parseStringValue(item["sale_type"])
+	salePrice1 := parseFloatValue(item["sale_price1"])
+	status := parseStringValue(item["status"])
+	priceType := parseStringValue(item["price_type"])
+	custCode := parseStringValue(item["cust_code"])
+	salePrice2 := parseFloatValue(item["sale_price2"])
+	custGroup1 := parseStringValue(item["cust_group_1"])
+	priceMode := parseStringValue(item["price_mode"])
+	
+	// Escape single quotes
+	icCode = strings.ReplaceAll(icCode, "'", "''")
+	unitCode = strings.ReplaceAll(unitCode, "'", "''")
+	saleType = strings.ReplaceAll(saleType, "'", "''")
+	status = strings.ReplaceAll(status, "'", "''")
+	priceType = strings.ReplaceAll(priceType, "'", "''")
+	custCode = strings.ReplaceAll(custCode, "'", "''")
+	custGroup1 = strings.ReplaceAll(custGroup1, "'", "''")
+	priceMode = strings.ReplaceAll(priceMode, "'", "''")
+	
+	value := fmt.Sprintf("('%s', '%s', %s, %s, %s, %s, '%s', %s, '%s', '%s', '%s', %s, '%s', '%s')",
+		icCode, unitCode, fromQty, toQty,
+		nullableDate(fromDate), nullableDate(toDate),
+		saleType, salePrice1, status, priceType, custCode,
+		salePrice2, custGroup1, priceMode)
+		
+	return value, nil
+}
+
+// deleteFromTable ลบข้อมูลจากตารางที่ระบุ
+func (api *APIClient) deleteFromTable(tableName string, idColumn string, ids []interface{}, idIsString bool) (int, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	
+	fmt.Printf("🗑️ กำลังลบข้อมูลจากตาราง %s: %d รายการ\n", tableName, len(ids))
+	
+	// สร้างคำสั่ง DELETE
+	deleteQuery := fmt.Sprintf("DELETE FROM %s WHERE %s IN (", tableName, idColumn)
+	
+	for i, id := range ids {
+		if idIsString {
+			// หากเป็น string ต้องใส่เครื่องหมาย quotes
+			deleteQuery += fmt.Sprintf("'%v'", id)
+		} else {
+			// หากเป็นตัวเลข ไม่ต้องใส่เครื่องหมาย quotes
+			deleteQuery += fmt.Sprintf("%v", id)
+		}
+		
+		if i < len(ids)-1 {
+			deleteQuery += ","
+		}
+	}
+	deleteQuery += ")"
+	
+	// ทำการลบข้อมูล
+	resp, err := api.ExecuteCommand(deleteQuery)
+	if err != nil {
+		fmt.Printf("❌ ERROR: ไม่สามารถลบข้อมูลจาก %s ได้: %v\n", tableName, err)
+		return 0, err
+	}
+	
+	if !resp.Success {
+		fmt.Printf("❌ ERROR: ลบข้อมูลจาก %s ล้มเหลว: %s\n", tableName, resp.Message)
+		return 0, fmt.Errorf("ลบข้อมูลล้มเหลว: %s", resp.Message)
+	}
+	
+	fmt.Printf("✅ ลบข้อมูลจาก %s เรียบร้อยแล้ว: %d รายการ\n", tableName, len(ids))
+	return len(ids), nil
+}
+
+// processPriceBatch ประมวลผลข้อมูลราคาสินค้าเป็น batch
+func (api *APIClient) processPriceBatch(data []interface{}, batchSize int, isUpdate bool) (int, error) {
+	if len(data) == 0 {
+		return 0, nil
+	}
+	
+	operationType := "เพิ่ม"
+	if isUpdate {
+		operationType = "อัปเดต"
+	}
+	
+	fmt.Printf("🔄 กำลัง%sข้อมูล: %d รายการ (batch ละ %d รายการ)\n", operationType, len(data), batchSize)
+	
+	// แบ่งเป็น batch
+	batchCount := (len(data) + batchSize - 1) / batchSize
+	totalProcessed := 0
+	
+	for b := 0; b < batchCount; b++ {
+		start := b * batchSize
+		end := start + batchSize
+		if end > len(data) {
+			end = len(data)
+		}
+		
+		currentBatch := data[start:end]
+		fmt.Printf("   📦 ประมวลผล batch ที่ %d/%d (รายการ %d-%d) จากทั้งหมด %d รายการ\n", 
+			b+1, batchCount, start+1, end, len(data))
+		
+		// เตรียมข้อมูลสำหรับ batch
+		var batchValues []string
+		
+		for _, item := range currentBatch {
+			if itemMap, ok := item.(map[string]interface{}); ok {
+				value, err := prepPriceDataValues(itemMap)
+				if err != nil {
+					fmt.Printf("⚠️ ข้ามรายการ: %v - %v\n", err, itemMap)
+					continue
+				}
+				batchValues = append(batchValues, value)
+			} else {
+				fmt.Printf("⚠️ ข้ามรายการที่ไม่ใช่ map: %v\n", item)
+			}
+		}
+		
+		// ทำการเพิ่มหรืออัปเดตข้อมูลเป็น batch
+		if len(batchValues) > 0 {
+			// No WHERE clause needed for simple INSERT
+			
+			query := fmt.Sprintf(`
+				INSERT INTO ic_inventory_price (
+					ic_code, unit_code, from_qty, to_qty, from_date, to_date, 
+					sale_type, sale_price1, status, price_type, cust_code, 
+					sale_price2, cust_group_1, price_mode
+				)
+				VALUES %s;`,
+				strings.Join(batchValues, ","))
+			
+			resp, err := api.ExecuteCommand(query)
+			if err != nil {
+				fmt.Printf("❌ ERROR: ไม่สามารถ%sข้อมูล (batch %d) ได้: %v\n", operationType, b+1, err)
+				continue
+			}
+			
+			if !resp.Success {
+				fmt.Printf("❌ ERROR: %sข้อมูล (batch %d) ล้มเหลว: %s\n", operationType, b+1, resp.Message)
+				continue
+			}
+			
+			totalProcessed += len(batchValues)
+			fmt.Printf("   ✅ %sข้อมูล batch %d สำเร็จ: %d รายการ\n", operationType, b+1, len(batchValues))
+		}
+		
+		// หน่วงเวลาเล็กน้อยระหว่าง batch
+		if b < batchCount-1 {
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+	
+	fmt.Printf("✅ %sข้อมูลเรียบร้อยแล้ว: %d จาก %d รายการ\n", operationType, totalProcessed, len(data))
+	return totalProcessed, nil
+}
+
+// toInterfaceSlice แปลง slice ของ int เป็น slice ของ interface{}
+func toInterfaceSlice(ints []int) []interface{} {
+	result := make([]interface{}, len(ints))
+	for i, v := range ints {
+		result[i] = v
+	}
+	return result
 }

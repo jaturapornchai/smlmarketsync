@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log"
 	"smlmarketsync/config"
-	"smlmarketsync/steps"
+	//"smlmarketsync/steps"
 )
 
 func main() {
@@ -18,6 +18,29 @@ func main() {
 	}
 	defer db.Close()
 
+	// ตรวจสอบ บน database ว่ามี Table sml_market_sync หรือไม่
+	if !config.TableExists(db, "sml_market_sync") {
+		// สร้างตาราง sml_market_sync ถ้ายังไม่มี
+		err = config.CreateSyncTable(db)
+		if err != nil {
+			log.Fatalf("Failed to create sml_market_sync table: %v", err)
+		}
+		fmt.Println("✅ ตาราง sml_market_sync ถูกสร้างเรียบร้อยแล้ว")
+	} else {
+		fmt.Println("✅ ตาราง sml_market_sync มีอยู่แล้ว")
+	}
+	// ตรวจสอบ บน database ว่ามี ใน table ic_inventory_price มี tigger หรือไม่
+	if !config.TriggerExists(db, "ic_inventory_price") {
+		// สร้าง trigger สำหรับ ic_inventory_price ถ้ายังไม่มี
+		err = config.CreatePriceTrigger(db)
+		if err != nil {
+			log.Fatalf("Failed to create trigger for ic_inventory_price: %v", err)
+		}
+		fmt.Println("✅ Trigger สำหรับ ic_inventory_price ถูกสร้างเรียบร้อยแล้ว")
+	} else {
+		fmt.Println("✅ Trigger สำหรับ ic_inventory_price มีอยู่แล้ว")
+	}
+
 	// ขั้นตอนที่ 7: Sync Price
 	fmt.Println("\n🔄 เริ่มขั้นตอนการ sync ราคาสินค้า (Step 7)")
 	priceStep := steps.NewPriceSyncStep(db)
@@ -27,7 +50,7 @@ func main() {
 	}
 	fmt.Println("✅ ขั้นตอนการ sync ราคาสินค้า เสร็จสิ้น")
 
-	// ขั้นตอนที่ 1-3: Sync สินค้า (Product/Inventory)
+	/*// ขั้นตอนที่ 1-3: Sync สินค้า (Product/Inventory)
 	fmt.Println("\n🔄 เริ่มขั้นตอนการ sync สินค้า (Steps 1-3)")
 	productStep := steps.NewProductSyncStep(db)
 	err = productStep.ExecuteProductSync()
@@ -55,5 +78,5 @@ func main() {
 	fmt.Println("✅ ขั้นตอนการ sync ลูกค้า เสร็จสิ้น")
 
 	fmt.Println("\n🎉 การซิงค์ข้อมูลเสร็จสิ้นทุกขั้นตอน!")
-	fmt.Println("ข้อมูลถูกซิงค์ครบทุกตาราง: ic_inventory_barcode, ic_balance, ar_customer, และ ic_inventory_price")
+	fmt.Println("ข้อมูลถูกซิงค์ครบทุกตาราง: ic_inventory_barcode, ic_balance, ar_customer, และ ic_inventory_price")*/
 }
