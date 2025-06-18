@@ -138,7 +138,7 @@ func (api *APIClient) executeQuery(query string, endpoint string) (*QueryRespons
 }
 
 // ================================================================================
-// 2. DATABASE UTILITY FUNCTIONS  
+// 2. DATABASE UTILITY FUNCTIONS
 // ================================================================================
 
 // CheckDatabaseExists ตรวจสอบว่าตารางมีอยู่หรือไม่
