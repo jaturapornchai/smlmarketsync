@@ -54,7 +54,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("Error syncing with main table: %v", err)
 	}
-
 	// 5. ซิงค์ข้อมูล balance กับ API
 	fmt.Println("\n=== ขั้นตอนที่ 5: ซิงค์ข้อมูล balance กับ API ===")
 	err = productRepo.SyncBalanceWithAPI()
@@ -62,7 +61,14 @@ func main() {
 		log.Fatalf("Error syncing balance with API: %v", err)
 	}
 
+	// 6. ซิงค์ข้อมูลลูกค้ากับ API
+	fmt.Println("\n=== ขั้นตอนที่ 6: ซิงค์ข้อมูลลูกค้ากับ API ===")
+	err = productRepo.SyncCustomerWithAPI()
+	if err != nil {
+		log.Fatalf("Error syncing customer with API: %v", err)
+	}
+
 	fmt.Printf("\n✅ การซิงค์ข้อมูลเสร็จสิ้นทุกขั้นตอน!\n")
 	fmt.Printf("รวมจำนวนสินค้าที่ประมวลผล: %d รายการ\n", len(inventoryItems))
-	fmt.Println("ข้อมูลถูกซิงค์ครบทุกตาราง: ic_inventory_barcode_temp, ic_inventory_barcode, และ ic_balance")
+	fmt.Println("ข้อมูลถูกซิงค์ครบทุกตาราง: ic_inventory_barcode_temp, ic_inventory_barcode, ic_balance, และ ar_customer")
 }
