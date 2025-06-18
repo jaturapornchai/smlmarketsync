@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log"
 	"smlmarketsync/config"
-	//"smlmarketsync/steps"
+	"smlmarketsync/steps"
 )
 
 func main() {

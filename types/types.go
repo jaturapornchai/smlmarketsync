@@ -49,19 +49,19 @@ type CustomerItem struct {
 
 // PriceItem สำหรับข้อมูล ic_inventory_price
 type PriceItem struct {
-	rowOrderRef int     `json:"row_order_ref"`
-	IcCode     string  `json:"ic_code"`
-	UnitCode   string  `json:"unit_code"`
-	FromQty    float64 `json:"from_qty"`
-	ToQty      float64 `json:"to_qty"`
-	FromDate   string  `json:"from_date"`
-	ToDate     string  `json:"to_date"`
-	SaleType   string  `json:"sale_type"`
-	SalePrice1 float64 `json:"sale_price1"`
-	Status     string  `json:"status"`
-	PriceType  string  `json:"price_type"`
-	CustCode   string  `json:"cust_code"`
-	SalePrice2 float64 `json:"sale_price2"`
-	CustGroup1 string  `json:"cust_group_1"`
-	PriceMode  string  `json:"price_mode"`
+	RowOrderRef int     `json:"row_order_ref"`
+	IcCode      string  `json:"ic_code"`
+	UnitCode    string  `json:"unit_code"`
+	FromQty     float64 `json:"from_qty"`
+	ToQty       float64 `json:"to_qty"`
+	FromDate    string  `json:"from_date"`
+	ToDate      string  `json:"to_date"`
+	SaleType    string  `json:"sale_type"`
+	SalePrice1  float64 `json:"sale_price1"`
+	Status      string  `json:"status"`
+	PriceType   string  `json:"price_type"`
+	CustCode    string  `json:"cust_code"`
+	SalePrice2  float64 `json:"sale_price2"`
+	CustGroup1  string  `json:"cust_group_1"`
+	PriceMode   string  `json:"price_mode"`
 }
