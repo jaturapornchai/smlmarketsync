@@ -64,6 +64,18 @@ func main() {
 		fmt.Println("✅ Trigger สำหรับ ic_inventory_barcode มีอยู่แล้ว")
 	}
 
+	// ตรวจสอบ บน database ว่ามี ใน table ar_customer มี tigger หรือไม่
+	if !config.CustomerTriggerExists(db) {
+		// สร้าง trigger สำหรับ ar_customer ถ้ายังไม่มี
+		err = config.CreateCustomerTrigger(db)
+		if err != nil {
+			log.Fatalf("Failed to create trigger for ar_customer: %v", err)
+		}
+		fmt.Println("✅ Trigger สำหรับ ar_customer ถูกสร้างเรียบร้อยแล้ว")
+	} else {
+		fmt.Println("✅ Trigger สำหรับ ar_customer มีอยู่แล้ว")
+	}
+
 	// Sync Data Start
 	fmt.Println("🔄 เริ่มขั้นตอนการซิงค์ข้อมูล...")
 	// Sync สินค้า (Product/Inventory)
@@ -94,18 +106,16 @@ func main() {
 	fmt.Println("✅ ขั้นตอนการ sync ProductBarcode เสร็จสิ้น")
 
 	// Sync Customer
-	fmt.Println("\n🔄 เริ่มขั้นตอนการ sync ลูกค้า (Step 6)")
+	fmt.Println("\n🔄 เริ่มขั้นตอนการ sync ลูกค้า")
 	customerStep := steps.NewCustomerSyncStep(db)
 	err = customerStep.ExecuteCustomerSync()
 	if err != nil {
 		log.Fatalf("❌ Error in customer sync step: %v", err)
 	}
 	fmt.Println("✅ ขั้นตอนการ sync ลูกค้า เสร็จสิ้น")
-	
-	/*
-	
-	// ขั้นตอนที่ 5: Sync Balance
-	fmt.Println("\n🔄 เริ่มขั้นตอนการ sync balance (Step 5)")
+
+	// Sync Balance
+	fmt.Println("\n🔄 เริ่มขั้นตอนการ sync balance")
 	balanceStep := steps.NewBalanceSyncStep(db)
 	err = balanceStep.ExecuteBalanceSync()
 	if err != nil {
@@ -115,5 +125,5 @@ func main() {
 
 
 	fmt.Println("\n🎉 การซิงค์ข้อมูลเสร็จสิ้นทุกขั้นตอน!")
-	fmt.Println("ข้อมูลถูกซิงค์ครบทุกตาราง: ic_inventory_barcode, ic_balance, ar_customer, และ ic_inventory_price")*/
+	fmt.Println("ข้อมูลถูกซิงค์ครบทุกตาราง: ic_inventory_barcode, ic_balance, ar_customer, และ ic_inventory_price")
 }

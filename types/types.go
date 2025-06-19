@@ -52,6 +52,7 @@ type BalanceItem struct {
 
 // CustomerItem สำหรับข้อมูล ar_customer
 type CustomerItem struct {
+	RowOrderRef int    `json:"row_order_ref"`
 	Code       string `json:"code"`
 	PriceLevel string `json:"price_level"`
 }

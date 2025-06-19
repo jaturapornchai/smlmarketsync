@@ -338,42 +338,6 @@ func (r *ProductRepository) GetBalanceDataFromLocal() ([]interface{}, error) {
 	return results, nil
 }
 
-/*// SyncBalanceWithAPI ขั้นตอนที่ 5: ซิงค์ข้อมูล balance กับ API แบบ batch
-func (r *ProductRepository) SyncBalanceWithAPI() error {
-	fmt.Println("กำลังตรวจสอบและสร้างตาราง ic_balance บน API...")
-
-	// สร้างตาราง ic_balance ถ้าไม่มี
-	err := r.apiClient.CreateBalanceTable()
-	if err != nil {
-		return fmt.Errorf("error creating ic_balance table: %v", err)
-	}
-	fmt.Println("✅ ตรวจสอบ/สร้างตาราง ic_balance เรียบร้อยแล้ว")
-
-	// ดึงข้อมูล balance จาก local
-	localData, err := r.GetBalanceDataFromLocal()
-	if err != nil {
-		return fmt.Errorf("error getting local balance data: %v", err)
-	}
-
-	if len(localData) == 0 {
-		fmt.Println("ไม่มีข้อมูล balance ใน local database")
-		return nil
-	}
-	// ซิงค์ข้อมูล balance
-	fmt.Println("กำลังซิงค์ข้อมูล balance...")
-	fmt.Printf("📦 จะประมวลผลข้อมูล %d รายการ\n", len(localData))
-
-	totalCount, err := r.apiClient.SyncBalanceData(localData)
-	if err != nil {
-		return fmt.Errorf("error syncing balance data: %v", err)
-	}
-	fmt.Printf("✅ ซิงค์ข้อมูล balance เรียบร้อยแล้ว\n")
-	fmt.Printf("📊 สถิติการซิงค์ balance:\n")
-	fmt.Printf("   - ข้อมูลที่ซิงค์: %d รายการ (แบบ batch)\n", totalCount)
-
-	return nil
-}
-*/
 // GetAllCustomersFromSource ดึงข้อมูลลูกค้าทั้งหมดจากฐานข้อมูลต้นทาง
 func (r *ProductRepository) GetAllCustomersFromSource() ([]interface{}, error) {
 	query := `
@@ -426,55 +390,3 @@ func (r *ProductRepository) GetAllCustomersFromSource() ([]interface{}, error) {
 	fmt.Printf("ดึงข้อมูลลูกค้าจากฐานข้อมูลต้นทางได้ %d รายการ\n", len(customers))
 	return customers, nil
 }
-
-/*// SyncCustomerWithAPI ซิงค์ข้อมูลลูกค้ากับ API
-func (r *ProductRepository) SyncCustomerWithAPI() error {
-	// 1. ตรวจสอบและสร้างตาราง ar_customer บน API
-	fmt.Println("กำลังตรวจสอบและสร้างตาราง ar_customer บน API...")
-	err := r.apiClient.CreateCustomerTable()
-	if err != nil {
-		return fmt.Errorf("error creating customer table: %v", err)
-	}
-	fmt.Println("✅ ตรวจสอบ/สร้างตาราง ar_customer เรียบร้อยแล้ว")
-
-	// 2. ดึงข้อมูลลูกค้าจาก local database
-	fmt.Println("กำลังดึงข้อมูลลูกค้าจากฐานข้อมูล local...")
-	localData, err := r.GetAllCustomersFromSource()
-	if err != nil {
-		return fmt.Errorf("error getting local customer data: %v", err)
-	}
-
-	if len(localData) == 0 {
-		fmt.Println("ไม่มีข้อมูลลูกค้าใน local database")
-		return nil
-	}
-
-	fmt.Printf("ดึงข้อมูลลูกค้าจาก local ได้ %d รายการ\n", len(localData))
-
-	// 3. ดึงข้อมูลลูกค้าที่มีอยู่จาก API (ไม่จำเป็นสำหรับ batch UPSERT)
-	fmt.Println("กำลังดึงข้อมูลลูกค้าที่มีอยู่จาก API...")
-	existingData, err := r.apiClient.GetExistingCustomerData()
-	if err != nil {
-		return fmt.Errorf("error getting existing customer data: %v", err)
-	}
-	fmt.Printf("พบข้อมูลลูกค้าใน API อยู่แล้ว %d รายการ\n", len(existingData))
-
-	// 4. ซิงค์ข้อมูลโดยส่งทั้งหมดแบบ batch UPSERT
-	fmt.Println("กำลังเปรียบเทียบและซิงค์ข้อมูลลูกค้า (batch UPSERT)...")
-	fmt.Printf("📦 จะประมวลผลข้อมูล %d รายการ โดยใช้ batch UPSERT\n", len(localData))
-
-	insertCount, updateCount, err := r.apiClient.SyncCustomerData(localData, existingData)
-	if err != nil {
-		return fmt.Errorf("error syncing customer data: %v", err)
-	}
-
-	fmt.Printf("✅ ซิงค์ข้อมูลลูกค้าเรียบร้อยแล้ว (batch UPSERT)\n")
-	fmt.Printf("📊 สถิติการซิงค์ลูกค้า:\n")
-	fmt.Printf("   - ข้อมูลใน local: %d รายการ\n", len(localData))
-	fmt.Printf("   - Insert ใหม่: %d รายการ (แบบ batch)\n", insertCount)
-	fmt.Printf("   - Update ที่มีอยู่: %d รายการ (แบบ batch)\n", updateCount)
-	fmt.Printf("   - ไม่เปลี่ยนแปลง: %d รายการ\n", len(localData)-insertCount-updateCount)
-
-	return nil
-}
-*/

@@ -22,7 +22,7 @@ func NewBalanceSyncStep(db *sql.DB) *BalanceSyncStep {
 
 // ExecuteBalanceSync รันขั้นตอนที่ 5: การ sync balance
 func (s *BalanceSyncStep) ExecuteBalanceSync() error {
-	fmt.Println("=== ขั้นตอนที่ 5: ซิงค์ข้อมูล balance กับ API ===")
+	fmt.Println("=== ซิงค์ข้อมูล balance กับ API ===")
 
 	// 1. ตรวจสอบและสร้างตาราง ic_balance
 	fmt.Println("กำลังตรวจสอบและสร้างตาราง ic_balance บน API...")
@@ -44,19 +44,20 @@ func (s *BalanceSyncStep) ExecuteBalanceSync() error {
 		return nil
 	}
 	fmt.Printf("ดึงข้อมูล balance จาก local ได้ %d รายการ\n", len(localData))
-	// 3. ซิงค์ข้อมูลโดยส่งทั้งหมดแบบ batch UPSERT
+	// 3. ซิงค์ข้อมูลโดยส่งทั้งหมดแบบ batch 
 	fmt.Println("กำลังซิงค์ข้อมูล balance...")
 	fmt.Printf("📦 จะประมวลผลข้อมูล %d รายการ\n", len(localData))
 
 	// แสดงตัวอย่างข้อมูลรายการแรก
 	if len(localData) > 0 {
 		fmt.Printf("ตัวอย่างข้อมูลรายการแรก: %v\n", localData[0])
-	} // totalCount, err := s.apiClient.SyncBalanceData(localData)
-	totalCount := 0
-	// err = nil
-	// if err != nil {
-	// 	return fmt.Errorf("error syncing balance data: %v", err)
-	// }
+	} 
+	totalCount, err := s.apiClient.SyncInventoryBalanceData(localData)
+	if err != nil {
+		return fmt.Errorf("error syncing balance data to API: %v", err)
+	}
+		
+
 
 	fmt.Printf("✅ ซิงค์ข้อมูล balance เรียบร้อยแล้ว\n")
 	fmt.Printf("📊 สถิติการซิงค์ balance:\n")

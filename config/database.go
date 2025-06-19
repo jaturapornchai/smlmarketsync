@@ -366,3 +366,87 @@ func CreateInventoryBarcodeTrigger(db *sql.DB) error {
 
 	return nil
 }
+
+// CustomerTriggerExists ตรวจสอบว่า trigger และ function สำหรับ ar_customer มีอยู่หรือไม่
+func CustomerTriggerExists(db *sql.DB) bool {
+	// ตรวจสอบ trigger ที่ชื่อ customer_changes_trigger
+	triggerQuery := `
+		SELECT EXISTS (
+			SELECT 1 FROM information_schema.triggers 
+			WHERE event_object_table = 'ar_customer'
+			AND trigger_name = 'customer_changes_trigger'
+		)
+	`
+	var triggerExists bool
+	err := db.QueryRow(triggerQuery).Scan(&triggerExists)
+	if err != nil {
+		log.Printf("❌ เกิดข้อผิดพลาดในการตรวจสอบ customer trigger: %v", err)
+		return false
+	}
+
+	// ตรวจสอบ function ที่ชื่อ log_customer_changes
+	functionQuery := `
+		SELECT EXISTS (
+			SELECT 1 FROM information_schema.routines 
+			WHERE routine_type = 'FUNCTION'
+			AND routine_name = 'log_customer_changes'
+		)
+	`
+	var functionExists bool
+	err = db.QueryRow(functionQuery).Scan(&functionExists)
+	if err != nil {
+		log.Printf("❌ เกิดข้อผิดพลาดในการตรวจสอบ customer function: %v", err)
+		return false
+	}
+
+	return triggerExists && functionExists
+}
+
+// CreateCustomerTrigger สร้าง trigger สำหรับตาราง ar_customer เพื่อติดตามการเปลี่ยนแปลง
+func CreateCustomerTrigger(db *sql.DB) error {
+	// 1. สร้างฟังก์ชัน trigger
+	createFunctionQuery := `
+		CREATE OR REPLACE FUNCTION log_customer_changes()
+		RETURNS TRIGGER AS $$
+		BEGIN
+			IF TG_OP = 'INSERT' THEN
+				-- บันทึกข้อมูลการเพิ่มลูกค้า หลัง Insert
+				INSERT INTO sml_market_sync (table_id, active_code, row_order_ref)
+				VALUES (4, 1, NEW.roworder);
+				
+			ELSIF TG_OP = 'UPDATE' THEN
+				-- บันทึกข้อมูลการอัพเดทลูกค้า
+				INSERT INTO sml_market_sync (table_id, active_code, row_order_ref)
+				VALUES (4, 2, NEW.roworder);
+				
+			ELSIF TG_OP = 'DELETE' THEN
+				-- บันทึกข้อมูลการลบลูกค้า
+				INSERT INTO sml_market_sync (table_id, active_code, row_order_ref)
+				VALUES (4, 3, OLD.roworder);
+			END IF;
+			
+			RETURN NULL; 
+		END;
+		$$ LANGUAGE plpgsql;
+	`
+
+	_, err := db.Exec(createFunctionQuery)
+	if err != nil {
+		return fmt.Errorf("ไม่สามารถสร้างฟังก์ชัน customer trigger: %v", err)
+	}
+
+	// 2. สร้าง trigger ที่ใช้ฟังก์ชันข้างต้น
+	createTriggerQuery := `
+		DROP TRIGGER IF EXISTS customer_changes_trigger ON ar_customer;
+		CREATE TRIGGER customer_changes_trigger
+		AFTER INSERT OR UPDATE OR DELETE ON ar_customer
+		FOR EACH ROW EXECUTE FUNCTION log_customer_changes();
+	`
+
+	_, err = db.Exec(createTriggerQuery)
+	if err != nil {
+		return fmt.Errorf("ไม่สามารถสร้าง customer trigger: %v", err)
+	}
+
+	return nil
+}
