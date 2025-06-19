@@ -111,7 +111,7 @@ func (s *ProductSyncStep) GetAllInventoryFromSource() ([]int, []interface{}, []i
 
 			// แปลงเป็น map สำหรับ API
 			inventoryMap := map[string]interface{}{
-				"code":            inventory.IcCode,
+				"code":               inventory.IcCode,
 				"name":               inventory.Name,
 				"item_type":          inventory.ItemType,
 				"unit_standard_code": inventory.UnitStandardCode,
@@ -126,7 +126,7 @@ func (s *ProductSyncStep) GetAllInventoryFromSource() ([]int, []interface{}, []i
 			if activeCode == 2 {
 				// activeCode = 2: DELETE บน server ก่อน แล้ว INSERT ใหม่ (ไม่ใช่ UPDATE)
 				deletes = append(deletes, rowOrderRef)
-				inserts = append(inserts, inventoryMap)     // เพิ่มเข้า inserts เพื่อ insert ใหม่
+				inserts = append(inserts, inventoryMap) // เพิ่มเข้า inserts เพื่อ insert ใหม่
 			}
 		} else if activeCode == 3 {
 			deletes = append(deletes, rowOrderRef)
@@ -254,9 +254,8 @@ func (s *ProductBarcodeSyncStep) ExecuteProductBarcodeSync() error {
 		fmt.Println("ไม่มีข้อมูล ProductBarcode ใน local database")
 		return nil
 	}
-
 	// 3. ลบข้อมูลใน sml_market_sync ที่ถูกซิงค์แล้วแบบ batch
-	err = s.DeleteProductBarcodeSyncRecordsInBatches(syncIds, 100) // ลบครั้งละ 100 รายการ
+	err = s.DeleteSyncRecordsInBatches(syncIds, 100) // ลบครั้งละ 100 รายการ
 	if err != nil {
 		fmt.Printf("⚠️ Warning: %v\n", err)
 		// ทำงานต่อไปถึงแม้จะมีข้อผิดพลาด
@@ -297,7 +296,7 @@ func (s *ProductBarcodeSyncStep) GetAllProductBarcodeFromSource() ([]int, []inte
 		if activeCode != 3 {
 			// ดึงข้อมูล ProductBarcode จากตาราง ic_inventory_barcode
 			queryGetData := `
-				SELECT ic_code, barcode, 
+				SELECT roworder,ic_code, barcode, 
 					coalesce((SELECT name_1 FROM ic_inventory WHERE code=ic_code), 'XX') as name,
 					unit_code,
 					coalesce((SELECT name_1 FROM ic_unit WHERE code=unit_code), 'XX') as unit_name 
@@ -308,6 +307,7 @@ func (s *ProductBarcodeSyncStep) GetAllProductBarcodeFromSource() ([]int, []inte
 
 			var inventory types.BarcodeItem
 			err := row.Scan(
+				&inventory.RowOrderRef,
 				&inventory.IcCode,
 				&inventory.Barcode,
 				&inventory.Name,
@@ -322,12 +322,12 @@ func (s *ProductBarcodeSyncStep) GetAllProductBarcodeFromSource() ([]int, []inte
 				return nil, nil, nil, nil, fmt.Errorf("error scanning ProductBarcode row: %v", err)
 			} // แปลงเป็น map สำหรับ API
 			inventoryMap := map[string]interface{}{
+				"row_order_ref": inventory.RowOrderRef,
 				"ic_code":       inventory.IcCode,
 				"barcode":       inventory.Barcode,
 				"name":          inventory.Name,
 				"unit_code":     inventory.UnitCode,
 				"unit_name":     inventory.UnitName,
-				"row_order_ref": rowOrderRef,
 			}
 
 			// แยกประเภทตาม active_code
@@ -337,8 +337,8 @@ func (s *ProductBarcodeSyncStep) GetAllProductBarcodeFromSource() ([]int, []inte
 			}
 			if activeCode == 2 {
 				// activeCode = 2: DELETE บน server ก่อน แล้ว INSERT ใหม่ (ไม่ใช่ UPDATE)
-				deletes = append(deletes, inventory.Barcode) // เพิ่มเข้า deletes เพื่อลบบน server ก่อน
-				inserts = append(inserts, inventoryMap)      // เพิ่มเข้า inserts เพื่อ insert ใหม่
+				deletes = append(deletes, inventory.RowOrderRef) // เพิ่มเข้า deletes เพื่อลบบน server ก่อน
+				inserts = append(inserts, inventoryMap)          // เพิ่มเข้า inserts เพื่อ insert ใหม่
 			}
 		} else if activeCode == 3 {
 			deletes = append(deletes, rowOrderRef)
@@ -348,8 +348,8 @@ func (s *ProductBarcodeSyncStep) GetAllProductBarcodeFromSource() ([]int, []inte
 	return syncIds, inserts, updates, deletes, nil
 }
 
-// DeleteProductBarcodeSyncRecordsInBatches ลบข้อมูลจาก sml_market_sync ในฐานข้อมูลท้องถิ่นแบบแบ่งเป็น batch
-func (s *ProductBarcodeSyncStep) DeleteProductBarcodeSyncRecordsInBatches(syncIds []int, batchSize int) error {
+// DeleteSyncRecordsInBatches ลบข้อมูลจาก sml_market_sync ในฐานข้อมูลท้องถิ่นแบบแบ่งเป็น batch
+func (s *ProductBarcodeSyncStep) DeleteSyncRecordsInBatches(syncIds []int, batchSize int) error {
 	if len(syncIds) == 0 {
 		fmt.Println("✅ ไม่มีข้อมูลที่ต้องลบจาก sml_market_sync")
 		return nil
@@ -404,7 +404,8 @@ func (s *ProductBarcodeSyncStep) DeleteProductBarcodeSyncRecordsInBatches(syncId
 		rowsAffected, err := result.RowsAffected()
 		if err != nil {
 			fmt.Printf("   ⚠️ Warning: ไม่สามารถอ่านจำนวนแถวที่ถูกลบได้: %v\n", err)
-			rowsAffected = int64(currentBatchSize) // ใช้ขนาดของ batch แทน
+			// ใช้ขนาดของ batch แทน
+			rowsAffected = int64(currentBatchSize)
 		}
 
 		totalDeleted += int(rowsAffected)
@@ -430,4 +431,3 @@ func (s *ProductBarcodeSyncStep) DeleteProductBarcodeSyncRecordsInBatches(syncId
 		totalDeleted, batchCount)
 	return nil
 }
-

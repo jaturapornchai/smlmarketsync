@@ -276,36 +276,6 @@ func (r *ProductRepository) uploadBatchViaAPI(items []InventoryItem) error {
 	return nil
 }
 
-// SyncWithMainTable ขั้นตอนที่ 4: ซิงค์ข้อมูลกับ main table
-func (r *ProductRepository) SyncWithMainTable() error {
-	fmt.Println("กำลังตรวจสอบและสร้างตาราง ic_inventory_barcode...")
-
-	// สร้างตาราง ic_inventory_barcode ถ้าไม่มี
-	err := r.apiClient.CreateInventoryBarcodeTable()
-	if err != nil {
-		return fmt.Errorf("error creating ic_inventory_barcode table: %v", err)
-	}
-	fmt.Println("✅ ตรวจสอบ/สร้างตาราง ic_inventory_barcode เรียบร้อยแล้ว")
-	fmt.Println("กำลังซิงค์ข้อมูลสินค้า...")
-	// ซิงค์ข้อมูล
-	insertCount, totalCount, err := r.apiClient.SyncInventoryBarcodeData()
-	if err != nil {
-		return fmt.Errorf("error syncing data: %v", err)
-	}
-	fmt.Printf("   - จำนวนรายการที่อัปเดต: %d\n   - จำนวนรายการทั้งหมด: %d\n", insertCount, totalCount)
-	fmt.Println("กำลังตรวจสอบสถิติการซิงค์...") // ดึงสถิติการซิงค์
-	count, _, err := r.apiClient.GetSyncStatistics()
-	if err != nil {
-		fmt.Printf("⚠️ ไม่สามารถดึงสถิติได้: %v\n", err)
-		return nil
-	}
-
-	fmt.Printf("\n📊 สถิติการซิงค์:\n")
-	fmt.Printf("   - จำนวนรายการที่ซิงค์: %d รายการ\n", count)
-
-	return nil
-}
-
 // GetBalanceDataFromLocal ดึงข้อมูล balance จากฐานข้อมูล local
 func (r *ProductRepository) GetBalanceDataFromLocal() ([]interface{}, error) {
 	fmt.Println("กำลังดึงข้อมูล balance จากฐานข้อมูล local...")

@@ -75,25 +75,36 @@ func main() {
 	}
 	fmt.Println("✅ ขั้นตอนการ sync สินค้า เสร็จสิ้น")
 
-	/*// Sync Price
+	// Sync Price
 	fmt.Println("\n🔄 เริ่มขั้นตอนการ sync ราคาสินค้า")
 	priceStep := steps.NewPriceSyncStep(db)
 	err = priceStep.ExecutePriceSync()
 	if err != nil {
 		log.Fatalf("❌ Error in price sync step: %v", err)
 	}
-	fmt.Println("✅ ขั้นตอนการ sync ราคาสินค้า เสร็จสิ้น")*/
+	fmt.Println("✅ ขั้นตอนการ sync ราคาสินค้า เสร็จสิ้น")
 
-	/*// Sync ProductBarcode
+	// Sync ProductBarcode
 	fmt.Println("\n🔄 เริ่มขั้นตอนการ sync ProductBarcode")
 	productBarcodeStep := steps.NewProductBarcodeSyncStep(db)
 	err = productBarcodeStep.ExecuteProductBarcodeSync()
 	if err != nil {
 		log.Fatalf("❌ Error in ProductBarcode sync steps: %v", err)
 	}
-	fmt.Println("✅ ขั้นตอนการ sync ProductBarcode เสร็จสิ้น")*/
+	fmt.Println("✅ ขั้นตอนการ sync ProductBarcode เสร็จสิ้น")
 
-	/*// ขั้นตอนที่ 5: Sync Balance
+	// Sync Customer
+	fmt.Println("\n🔄 เริ่มขั้นตอนการ sync ลูกค้า (Step 6)")
+	customerStep := steps.NewCustomerSyncStep(db)
+	err = customerStep.ExecuteCustomerSync()
+	if err != nil {
+		log.Fatalf("❌ Error in customer sync step: %v", err)
+	}
+	fmt.Println("✅ ขั้นตอนการ sync ลูกค้า เสร็จสิ้น")
+	
+	/*
+	
+	// ขั้นตอนที่ 5: Sync Balance
 	fmt.Println("\n🔄 เริ่มขั้นตอนการ sync balance (Step 5)")
 	balanceStep := steps.NewBalanceSyncStep(db)
 	err = balanceStep.ExecuteBalanceSync()
@@ -102,14 +113,6 @@ func main() {
 	}
 	fmt.Println("✅ ขั้นตอนการ sync balance เสร็จสิ้น")
 
-	// ขั้นตอนที่ 6: Sync Customer
-	fmt.Println("\n🔄 เริ่มขั้นตอนการ sync ลูกค้า (Step 6)")
-	customerStep := steps.NewCustomerSyncStep(db)
-	err = customerStep.ExecuteCustomerSync()
-	if err != nil {
-		log.Fatalf("❌ Error in customer sync step: %v", err)
-	}
-	fmt.Println("✅ ขั้นตอนการ sync ลูกค้า เสร็จสิ้น")
 
 	fmt.Println("\n🎉 การซิงค์ข้อมูลเสร็จสิ้นทุกขั้นตอน!")
 	fmt.Println("ข้อมูลถูกซิงค์ครบทุกตาราง: ic_inventory_barcode, ic_balance, ar_customer, และ ic_inventory_price")*/

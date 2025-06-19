@@ -21,21 +21,25 @@ func NewPriceSyncStep(db *sql.DB) *PriceSyncStep {
 	}
 }
 
-// ExecutePriceSync รันขั้นตอนที่ 7: การ sync ราคาสินค้า
+// ExecutePriceSync รันขั้นตอนการ sync ราคาสินค้า
 func (s *PriceSyncStep) ExecutePriceSync() error {
-	fmt.Println("=== ซิงค์ข้อมูลราคาสินค้ากับ API ===") // 1. ตรวจสอบและสร้างตาราง ic_inventory_price
+	fmt.Println("=== ซิงค์ข้อมูลราคาสินค้ากับ API ===")
+
+	// 1. ตรวจสอบและสร้างตาราง ic_inventory_price
 	fmt.Println("กำลังตรวจสอบและสร้างตาราง ic_inventory_price บน API...")
 	err := s.apiClient.CreatePriceTable()
 	if err != nil {
 		return fmt.Errorf("error creating price table: %v", err)
 	}
 	fmt.Println("✅ ตรวจสอบ/สร้างตาราง ic_inventory_price เรียบร้อยแล้ว")
-	// 2. ดึงข้อมูลราคาสินค้าจาก local database
+
+	// 2. ดึงข้อมูลราคาสินค้าจาก local database ผ่าน sml_market_sync
 	fmt.Println("กำลังดึงข้อมูลราคาสินค้าจากฐานข้อมูล local...")
 	syncIds, inserts, updates, deletes, err := s.GetAllPricesFromSource()
 	if err != nil {
 		return fmt.Errorf("error getting local price data: %v", err)
 	}
+
 	if len(syncIds) == 0 {
 		fmt.Println("ไม่มีข้อมูลราคาสินค้าใน local database")
 		return nil
@@ -47,7 +51,6 @@ func (s *PriceSyncStep) ExecutePriceSync() error {
 		fmt.Printf("⚠️ Warning: %v\n", err)
 		// ทำงานต่อไปถึงแม้จะมีข้อผิดพลาด
 	}
-
 	// 4. ซิงค์ข้อมูลไปยัง API
 	fmt.Println("กำลังซิงค์ข้อมูลราคาสินค้าไปยัง API...")
 	s.apiClient.SyncPriceData(nil, inserts, updates, deletes) // ส่ง nil แทน syncIds เพราะเราลบเองแล้ว

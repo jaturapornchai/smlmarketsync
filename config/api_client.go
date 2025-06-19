@@ -329,60 +329,6 @@ func (api *APIClient) CreateCustomerTable() error {
 	return nil
 }
 
-// ================================================================================
-// 4. PRODUCT/INVENTORY SYNC FUNCTIONS
-// ================================================================================
-
-// SyncInventoryBarcodeData ซิงค์ข้อมูลบาร์โค้ดสินค้าจากตารางชั่วคราวไปยังตารางหลัก
-func (api *APIClient) SyncInventoryBarcodeData() (int, int, error) {
-	// สร้าง INSERT/UPDATE สำหรับข้อมูลใหม่
-	query := `
-	INSERT INTO ic_inventory_barcode (ic_code, barcode, name, unit_code, unit_name)
-	SELECT 
-		t.ic_code, 
-		t.barcode, 
-		t.name, 
-		t.unit_code, 
-		t.unit_name	FROM 
-		ic_inventory_barcode t
-	ON CONFLICT (ic_code, barcode) 
-	DO UPDATE SET
-		name = EXCLUDED.name,
-		unit_code = EXCLUDED.unit_code,
-		unit_name = EXCLUDED.unit_name
-	WHERE (
-		ic_inventory_barcode.ic_code IS DISTINCT FROM EXCLUDED.ic_code OR
-		ic_inventory_barcode.name IS DISTINCT FROM EXCLUDED.name OR
-		ic_inventory_barcode.unit_code IS DISTINCT FROM EXCLUDED.unit_code OR
-		ic_inventory_barcode.unit_name IS DISTINCT FROM EXCLUDED.unit_name
-	)
-	`
-
-	resp, err := api.ExecuteCommand(query)
-	if err != nil {
-		return 0, 0, err
-	}
-
-	if !resp.Success {
-		return 0, 0, fmt.Errorf("failed to sync inventory barcode data: %s", resp.Message)
-	}
-
-	// นับจำนวนที่มีการ insert และ update
-	affectedCount := 0
-	message := resp.Message
-	if strings.Contains(message, "affected") {
-		fmt.Sscanf(message, "%d rows affected", &affectedCount)
-	}
-
-	// ตรวจสอบจำนวนข้อมูลในตารางหลัก
-	totalCount, err := api.getInventoryCount()
-	if err != nil {
-		return affectedCount, 0, err
-	}
-
-	return affectedCount, totalCount, nil
-}
-
 // GetSyncStatistics คืนค่าสถิติการซิงค์ข้อมูล
 func (api *APIClient) GetSyncStatistics() (int, int, error) { // จำนวนในตาราง
 	queryTemp := "SELECT COUNT(*) AS count FROM ic_inventory_barcode"
@@ -453,16 +399,6 @@ func (api *APIClient) SyncProductBarcodeData(syncIds []int, inserts []interface{
 		fmt.Printf("✅ เพิ่มข้อมูล ProductBarcode เรียบร้อยแล้ว\n")
 	}
 
-	// Handle updates (if any)
-	if len(updates) > 0 {
-		fmt.Printf("🔄 กำลังอัพเดทข้อมูล ProductBarcode %d รายการ...\n", len(updates))
-		err := api.executeBatchUpdateProductBarcode(updates)
-		if err != nil {
-			return fmt.Errorf("error updating ProductBarcode data: %v", err)
-		}
-		fmt.Printf("✅ อัพเดทข้อมูล ProductBarcode เรียบร้อยแล้ว\n")
-	}
-
 	fmt.Println("✅ ซิงค์ข้อมูล ProductBarcode เสร็จสิ้น")
 	return nil
 }
@@ -491,7 +427,6 @@ func (api *APIClient) executeBatchInsertProductBarcode(inserts []interface{}) er
 			values = append(values, value)
 		}
 	}
-
 	if len(values) == 0 {
 		return nil
 	}
@@ -512,15 +447,60 @@ func (api *APIClient) executeBatchInsertProductBarcode(inserts []interface{}) er
 	return nil
 }
 
-// Placeholder methods for delete and update operations for ProductBarcode
+// executeBatchDeleteProductBarcode ลบข้อมูล ProductBarcode แบบ batch
 func (api *APIClient) executeBatchDeleteProductBarcode(deletes []interface{}) error {
-	// Implement batch delete logic for ProductBarcode
-	fmt.Printf("DEBUG: Would delete %d ProductBarcode items\n", len(deletes))
-	return nil
-}
+	if len(deletes) == 0 {
+		return nil
+	}
 
-func (api *APIClient) executeBatchUpdateProductBarcode(updates []interface{}) error {
-	// Implement batch update logic for ProductBarcode
-	fmt.Printf("DEBUG: Would update %d ProductBarcode items\n", len(updates))
+	fmt.Printf("🗑️ กำลังลบข้อมูล ProductBarcode %d รายการ...\n", len(deletes))
+
+	// แบ่งเป็น batch เพื่อป้องกัน query ยาวเกินไป
+	batchSize := 100
+	totalDeleted := 0
+
+	for i := 0; i < len(deletes); i += batchSize {
+		end := i + batchSize
+		if end > len(deletes) {
+			end = len(deletes)
+		}
+
+		currentBatch := deletes[i:end]
+		var rowOrderRefs []string
+
+		// สร้างรายการ row_order_ref สำหรับลบ
+		for _, item := range currentBatch {
+			rowOrderRef := fmt.Sprintf("%v", item)
+			rowOrderRefs = append(rowOrderRefs, rowOrderRef)
+		}
+
+		if len(rowOrderRefs) > 0 {
+			query := fmt.Sprintf(`
+				DELETE FROM ic_inventory_barcode 
+				WHERE row_order_ref IN (%s)
+			`, strings.Join(rowOrderRefs, ","))
+
+			resp, err := api.ExecuteCommand(query)
+			if err != nil {
+				fmt.Printf("⚠️ Warning: ไม่สามารถลบข้อมูล ProductBarcode batch ได้: %v\n", err)
+				continue
+			}
+
+			if !resp.Success {
+				fmt.Printf("⚠️ Warning: ลบข้อมูล ProductBarcode batch ล้มเหลว: %s\n", resp.Message)
+				continue
+			}
+
+			totalDeleted += len(rowOrderRefs)
+			fmt.Printf("   ✅ ลบข้อมูล ProductBarcode batch สำเร็จ: %d รายการ\n", len(rowOrderRefs))
+		}
+
+		// หน่วงเวลาเล็กน้อยระหว่าง batch
+		if end < len(deletes) {
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+
+	fmt.Printf("✅ ลบข้อมูล ProductBarcode เรียบร้อยแล้ว: %d รายการ\n", totalDeleted)
 	return nil
 }
