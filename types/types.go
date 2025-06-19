@@ -24,13 +24,22 @@ type ProductBarcode struct {
 	UnitName sql.NullString `json:"unit_name"`
 }
 
-// InventoryItem สำหรับข้อมูลที่จะ upload ไป ic_inventory_barcode
+// InventoryItem สำหรับข้อมูลที่จะ upload ไป ic_inventory
 type InventoryItem struct {
-	IcCode   string `json:"ic_code"`
-	Barcode  string `json:"barcode"`
-	Name     string `json:"name"`
-	UnitCode string `json:"unit_code"`
-	UnitName string `json:"unit_name"`
+	RowOrderRef      int    `json:"row_order_ref"`
+	IcCode           string `json:"ic_code"`
+	Name             string `json:"name"`
+	ItemType        int `json:"item_type"`
+	UnitStandardCode string `json:"unit_standard_code"`
+}
+
+type BarcodeItem struct {
+	RowOrderRef int    `json:"row_order_ref"`
+	IcCode      string `json:"ic_code"`
+	Barcode     string `json:"barcode"`
+	Name        string `json:"name"`
+	UnitCode    string `json:"unit_code"`
+	UnitName    string `json:"unit_name"`
 }
 
 // BalanceItem สำหรับข้อมูล ic_balance

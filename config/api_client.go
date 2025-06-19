@@ -23,6 +23,9 @@ Table of Contents:
    - GetSyncStatistics
    - SyncInventoryTableData
    - getInventoryCount
+   - SyncInventoryData
+   - SyncProductBarcodeData
+   - SyncPriceData
 
 5. Balance Sync Functions
    - SyncBalanceData
@@ -203,28 +206,22 @@ func (api *APIClient) DropTable(tableName string) error {
 
 // CreateInventoryTable สร้างตารางสำหรับเก็บข้อมูลสินค้า
 func (api *APIClient) CreateInventoryTable() error {
-	// ลบตารางเดิมก่อนถ้ามี
-	err := api.DropTable("ic_inventory_barcode")
-	if err != nil {
-		return fmt.Errorf("error dropping existing barcode table: %v", err)
-	}
-
-	query := `	CREATE TABLE ic_inventory_barcode (
-		ic_code VARCHAR(50) NOT NULL,
-		barcode VARCHAR(100) NOT NULL,
+	query := `CREATE TABLE IF NOT EXISTS ic_inventory (
+		code VARCHAR(50) NOT NULL,
 		name VARCHAR(200),
-		unit_code VARCHAR(50),
-		unit_name VARCHAR(100),
-		PRIMARY KEY (ic_code, barcode)
+		unit_standard_code VARCHAR(50),
+		item_type int DEFAULT 0, 
+		row_order_ref INT DEFAULT 0,
+		PRIMARY KEY (code)
 	)`
 
-	resp, err := api.ExecuteCommand(query)
+	response, err := api.ExecuteCommand(query)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create inventory table: %v", err)
 	}
 
-	if !resp.Success {
-		return fmt.Errorf("failed to create inventory temp table: %s", resp.Message)
+	if !response.Success {
+		return fmt.Errorf("failed to create inventory table: %s", response.Message)
 	}
 
 	return nil
@@ -243,14 +240,14 @@ func (api *APIClient) CreateInventoryBarcodeTable() error {
 		return nil
 	}
 
-	query := `	CREATE TABLE ic_inventory_barcode (
+	query := `	CREATE TABLE IF NOT EXISTS ic_inventory_barcode (
 		ic_code VARCHAR(50) NOT NULL,
 		barcode VARCHAR(100) NOT NULL,
 		name VARCHAR(200),
 		unit_code VARCHAR(50),
 		unit_name VARCHAR(100),
-		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-		PRIMARY KEY (ic_code, barcode)
+		row_order_ref INT DEFAULT 0,
+		PRIMARY KEY (barcode)
 	)`
 
 	resp, err := api.ExecuteCommand(query)
@@ -279,7 +276,7 @@ func (api *APIClient) CreateBalanceTable() error {
 	}
 
 	query := `
-	CREATE TABLE ic_balance (
+	CREATE TABLE IF NOT EXISTS ic_balance (
 		ic_code VARCHAR(50) NOT NULL,
 		wh_code VARCHAR(50) NOT NULL,
 		unit_code VARCHAR(50) NOT NULL,
@@ -313,7 +310,7 @@ func (api *APIClient) CreateCustomerTable() error {
 		return nil
 	}
 	query := `
-	CREATE TABLE ar_customer (
+	CREATE TABLE IF NOT EXISTS ar_customer (
 		code VARCHAR(50) NOT NULL,
 		price_level VARCHAR(50),
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -431,303 +428,99 @@ func (api *APIClient) getInventoryCount() (int, error) {
 	return 0, fmt.Errorf("failed to get inventory count")
 }
 
-// ================================================================================
-// 5. BALANCE SYNC FUNCTIONS
-// ================================================================================
+// SyncProductBarcodeData ซิงค์ข้อมูล ProductBarcode จาก local ไปยัง API
+func (api *APIClient) SyncProductBarcodeData(syncIds []int, inserts []interface{}, updates []interface{}, deletes []interface{}) error {
+	fmt.Printf("=== เริ่มซิงค์ข้อมูล ProductBarcode: %d inserts, %d updates, %d deletes ===\n",
+		len(inserts), len(updates), len(deletes))
 
-
-
-// SyncBalanceData ซิงค์ข้อมูล balance โดยใช้ batch upsert
-func (api *APIClient) SyncBalanceData(localData []interface{}) (int, error) {
-	// สร้าง slice สำหรับเก็บค่า values ที่จะ upsert
-	var values []string
-	batchSize := 1000 // จำนวน records ใน 1 batch
-	totalCount := 0
-	processedCount := 0
-	fmt.Println("เริ่มประมวลผลข้อมูล balance ทั้งหมด", len(localData), "รายการ")
-
-	// แสดงตัวอย่างข้อมูลรายการแรก (ถ้ามี)
-	if len(localData) > 0 {
-		fmt.Printf("ตัวอย่างข้อมูลรายการที่ 1: %v\n", localData[0])
+	// Handle deletes first
+	if len(deletes) > 0 {
+		fmt.Printf("🗑️ กำลังลบข้อมูล ProductBarcode %d รายการ...\n", len(deletes))
+		err := api.executeBatchDeleteProductBarcode(deletes)
+		if err != nil {
+			return fmt.Errorf("error deleting ProductBarcode data: %v", err)
+		}
+		fmt.Printf("✅ ลบข้อมูล ProductBarcode เรียบร้อยแล้ว\n")
 	}
 
-	for i, item := range localData {
-		itemMap, ok := item.(map[string]interface{})
-		if !ok {
-			fmt.Printf("ข้ามรายการที่ %d: ไม่สามารถแปลงเป็น map ได้\n", i+1)
-			continue
+	// Handle inserts
+	if len(inserts) > 0 {
+		fmt.Printf("📝 กำลังเพิ่มข้อมูล ProductBarcode %d รายการ...\n", len(inserts))
+		err := api.executeBatchInsertProductBarcode(inserts)
+		if err != nil {
+			return fmt.Errorf("error inserting ProductBarcode data: %v", err)
 		}
-
-		// Get field values and check if they exist
-		icCode, ok1 := itemMap["ic_code"].(string)
-		warehouse, ok2 := itemMap["warehouse"].(string)
-		unitCode, ok3 := itemMap["ic_unit_code"].(string)
-		balanceQty, ok4 := itemMap["balance_qty"].(float64)
-
-		if !ok1 || !ok2 || !ok3 || !ok4 {
-			fmt.Printf("ข้ามรายการที่ %d: ข้อมูลไม่ครบ ic_code=%v, warehouse=%v, ic_unit_code=%v, balance_qty=%v\n",
-				i+1, itemMap["ic_code"], itemMap["warehouse"], itemMap["ic_unit_code"], itemMap["balance_qty"])
-			continue
-		}
-		processedCount++
-
-		// Map field names for SQL query (warehouse -> wh_code, ic_unit_code -> unit_code)
-		valueStr := fmt.Sprintf("('%s', '%s', '%s', %f, NOW())",
-			icCode, warehouse, unitCode, balanceQty)
-		values = append(values, valueStr)
-
-		// ถ้าครบ batch size หรือเป็นรายการสุดท้าย ให้ทำการ upsert
-		if len(values) >= batchSize || i == len(localData)-1 {
-			if len(values) > 0 {
-				fmt.Printf("กำลัง UPSERT batch ที่ %d ขนาด %d รายการ...\n", (i/batchSize)+1, len(values))
-				err := api.executeBatchUpsertBalance(values)
-				if err != nil {
-					fmt.Printf("❌ เกิดข้อผิดพลาดในการ UPSERT batch: %v\n", err)
-					return totalCount, err
-				}
-				fmt.Printf("✅ UPSERT batch ที่ %d เสร็จสิ้น\n", (i/batchSize)+1)
-				totalCount += len(values)
-				values = []string{} // reset batch
-			}
-		}
+		fmt.Printf("✅ เพิ่มข้อมูล ProductBarcode เรียบร้อยแล้ว\n")
 	}
 
-	fmt.Printf("ประมวลผลข้อมูลทั้งหมด %d รายการ, UPSERT สำเร็จ %d รายการ\n", processedCount, totalCount)
-	return totalCount, nil
+	// Handle updates (if any)
+	if len(updates) > 0 {
+		fmt.Printf("🔄 กำลังอัพเดทข้อมูล ProductBarcode %d รายการ...\n", len(updates))
+		err := api.executeBatchUpdateProductBarcode(updates)
+		if err != nil {
+			return fmt.Errorf("error updating ProductBarcode data: %v", err)
+		}
+		fmt.Printf("✅ อัพเดทข้อมูล ProductBarcode เรียบร้อยแล้ว\n")
+	}
+
+	fmt.Println("✅ ซิงค์ข้อมูล ProductBarcode เสร็จสิ้น")
+	return nil
 }
 
-// executeBatchUpsertBalance ทำการ upsert ข้อมูล balance เป็น batch
-func (api *APIClient) executeBatchUpsertBalance(values []string) error {
+// executeBatchInsertProductBarcode เพิ่มข้อมูล ProductBarcode แบบ batch
+func (api *APIClient) executeBatchInsertProductBarcode(inserts []interface{}) error {
+	if len(inserts) == 0 {
+		return nil
+	}
+	var values []string
+	for _, item := range inserts {
+		if itemMap, ok := item.(map[string]interface{}); ok {
+			icCode := fmt.Sprintf("%v", itemMap["ic_code"])
+			barcode := fmt.Sprintf("%v", itemMap["barcode"])
+			name := fmt.Sprintf("%v", itemMap["name"])
+			unitCode := fmt.Sprintf("%v", itemMap["unit_code"])
+			unitName := fmt.Sprintf("%v", itemMap["unit_name"])
+			rowOrderRef := fmt.Sprintf("%v", itemMap["row_order_ref"])
+
+			// Escape single quotes
+			name = strings.ReplaceAll(name, "'", "''")
+			unitName = strings.ReplaceAll(unitName, "'", "''")
+
+			value := fmt.Sprintf("('%s', '%s', '%s', '%s', '%s', %s)",
+				icCode, barcode, name, unitCode, unitName, rowOrderRef)
+			values = append(values, value)
+		}
+	}
+
 	if len(values) == 0 {
 		return nil
 	}
 
-	// ใช้ชื่อคอลัมน์ที่ตรงกันระหว่าง warehouse/wh_code และ unit_code/ic_unit_code
 	query := fmt.Sprintf(`
-	INSERT INTO ic_balance (ic_code, wh_code, unit_code, balance_qty, updated_at)
-	VALUES %s
-	ON CONFLICT (ic_code, wh_code, unit_code) 
-	DO UPDATE SET
-		balance_qty = EXCLUDED.balance_qty,
-		updated_at = EXCLUDED.updated_at
-	WHERE (
-		ic_balance.ic_code IS DISTINCT FROM EXCLUDED.ic_code OR
-		ic_balance.wh_code IS DISTINCT FROM EXCLUDED.wh_code OR
-		ic_balance.unit_code IS DISTINCT FROM EXCLUDED.unit_code OR
-		ic_balance.balance_qty IS DISTINCT FROM EXCLUDED.balance_qty
-	)
+		INSERT INTO ic_inventory_barcode (ic_code, barcode, name, unit_code, unit_name, row_order_ref)
+		VALUES %s
 	`, strings.Join(values, ","))
 
-	// แสดงตัวอย่างของ query สำหรับการ debug (แสดงเฉพาะบางส่วน)
-	querySample := query
-	if len(query) > 500 {
-		querySample = query[:500] + "..."
-	}
-	fmt.Printf("Query UPSERT: %s\n", querySample)
-	fmt.Printf("กำลัง UPSERT ข้อมูล %d รายการเข้าตาราง ic_balance...\n", len(values))
 	resp, err := api.ExecuteCommand(query)
 	if err != nil {
-		fmt.Printf("❌ เกิดข้อผิดพลาดในการ UPSERT: %v\n", err)
-		// Show the first value for debugging
-		if len(values) > 0 {
-			fmt.Printf("ตัวอย่างค่าที่พยายาม UPSERT: %s\n", values[0])
-		}
-		return err
+		return fmt.Errorf("error executing batch insert ProductBarcode: %v", err)
 	}
 
 	if !resp.Success {
-		fmt.Printf("❌ UPSERT ไม่สำเร็จ: %s\n", resp.Message)
-		return fmt.Errorf("failed to batch upsert balance data: %s", resp.Message)
+		return fmt.Errorf("batch insert ProductBarcode failed: %s", resp.Message)
 	}
-
-	// นับจำนวนที่มีการ insert และ update
-	affectedCount := 0
-	message := resp.Message
-	if strings.Contains(message, "affected") {
-		fmt.Sscanf(message, "%d rows affected", &affectedCount)
-		fmt.Printf("✅ UPSERT สำเร็จ: มีการอัพเดท %d รายการ\n", affectedCount)
-	} else {
-		fmt.Printf("✅ UPSERT สำเร็จ แต่ไม่สามารถระบุจำนวนรายการที่อัพเดทได้\n")
-	}
-
 	return nil
 }
 
-// ================================================================================
-// 6. CUSTOMER SYNC FUNCTIONS
-// ================================================================================
-
-// SyncCustomerData ซิงค์ข้อมูลลูกค้าโดยใช้ batch upsert
-func (api *APIClient) SyncCustomerData(localData []interface{}) (int, error) {
-	// สร้าง slice สำหรับเก็บค่า values ที่จะ upsert
-	var values []string
-	batchSize := 50 // ลดขนาด batch เพื่อป้องกันปัญหา (เดิม 1000)
-	totalCount := 0
-	batchCount := 0
-
-	for i := 0; i < len(localData); i++ {
-		item := localData[i]
-		itemMap, ok := item.(map[string]interface{})
-		if !ok {
-			fmt.Printf("⚠️ ข้ามรายการที่ %d: ไม่สามารถแปลงเป็น map ได้\n", i)
-			continue
-		}
-
-		code, hasCode := itemMap["code"].(string)
-		if !hasCode || code == "" {
-			fmt.Printf("⚠️ ข้ามรายการที่ %d: ไม่มี code หรือ code เป็นค่าว่าง\n", i)
-			continue
-		}
-
-		// Escape special characters in code
-		code = strings.ReplaceAll(code, "'", "''")
-		// Filter out non-printable characters
-		var filteredCode strings.Builder
-		for _, r := range code {
-			if r >= 32 && r < 127 || r >= 3585 && r <= 3675 { // ASCII printable and Thai characters
-				filteredCode.WriteRune(r)
-			}
-		}
-		code = filteredCode.String()
-
-		priceLevel, hasPriceLevel := itemMap["price_level"].(string)
-		// Sanitize strings
-		if !hasPriceLevel {
-			priceLevel = ""
-		}
-
-		// Escape special characters in price_level
-		priceLevel = strings.ReplaceAll(priceLevel, "'", "''")
-		// Filter out non-printable characters
-		var filteredPriceLevel strings.Builder
-		for _, r := range priceLevel {
-			if r >= 32 && r < 127 || r >= 3585 && r <= 3675 { // ASCII printable and Thai characters
-				filteredPriceLevel.WriteRune(r)
-			}
-		}
-		priceLevel = filteredPriceLevel.String()
-
-		// Skip invalid characters or empty codes
-		if code == "" {
-			continue
-		}
-
-		totalCount++
-
-		// สร้าง value string สำหรับ batch upsert
-		valueStr := fmt.Sprintf("('%s', '%s', NOW())",
-			code, priceLevel)
-		values = append(values, valueStr)
-
-		// ถ้าครบ batch size หรือเป็นรายการสุดท้าย ให้ทำการ upsert
-		if len(values) >= batchSize || i == len(localData)-1 {
-			if len(values) > 0 {
-				batchCount++
-				fmt.Printf("กำลัง UPSERT batch ที่ %d ขนาด %d รายการ...\n", batchCount, len(values))
-
-				// Show sample values for debugging
-				sampleCount := 5
-				if len(values) < sampleCount {
-					sampleCount = len(values)
-				}
-				fmt.Printf("ตัวอย่างข้อมูล %d รายการแรกใน batch:\n", sampleCount)
-				for j := 0; j < sampleCount; j++ {
-					fmt.Printf("  - %s\n", values[j])
-				}
-
-				err := api.executeBatchUpsertCustomer(values)
-				if err != nil {
-					return totalCount, err
-				}
-				fmt.Printf("✅ UPSERT batch ที่ %d เสร็จสิ้น\n", batchCount)
-				values = []string{} // reset batch
-			}
-		}
-	}
-
-	return totalCount, nil
-}
-
-// executeBatchUpsertCustomer ทำการ upsert ข้อมูลลูกค้าเป็น batch
-func (api *APIClient) executeBatchUpsertCustomer(values []string) error {
-	if len(values) == 0 {
-		return nil
-	}
-
-	// Check for empty values that might cause SQL errors
-	var validValues []string
-	for _, value := range values {
-		if value != "('', '', NOW())" && value != "(NULL, NULL, NOW())" {
-			validValues = append(validValues, value)
-		}
-	}
-
-	if len(validValues) == 0 {
-		fmt.Println("ไม่มีข้อมูลที่ถูกต้องสำหรับ UPSERT หลังจากกรองข้อมูลที่ไม่ถูกต้องออก")
-		return nil
-	}
-
-	query := fmt.Sprintf(`
-	INSERT INTO ar_customer (code, price_level, created_at)
-	VALUES %s
-	ON CONFLICT (code) 
-DO UPDATE SET 
-    price_level = EXCLUDED.price_level
-WHERE 
-    ar_customer.price_level IS DISTINCT FROM EXCLUDED.price_level;
-	`, strings.Join(validValues, ","))
-
-	// Debug output for query
-	queryPreview := query
-	if len(query) > 500 {
-		queryPreview = query[:500] + "..."
-	}
-	fmt.Printf("UPSERT Query: %s\n", queryPreview)
-
-	resp, err := api.ExecuteCommand(query)
-	if err != nil {
-		fmt.Printf("❌ เกิดข้อผิดพลาดในการ UPSERT: %v\n", err)
-
-		// More detailed error info for debugging
-		if resp != nil {
-			fmt.Printf("API response: success=%v, message=%s\n", resp.Success, resp.Message)
-		}
-
-		return err
-	}
-
-	if !resp.Success {
-		fmt.Printf("❌ UPSERT ล้มเหลว: %s\n", resp.Message)
-		return fmt.Errorf("failed to batch upsert customer data: %s", resp.Message)
-	}
-
-	fmt.Printf("✅ UPSERT สำเร็จ\n")
-
+// Placeholder methods for delete and update operations for ProductBarcode
+func (api *APIClient) executeBatchDeleteProductBarcode(deletes []interface{}) error {
+	// Implement batch delete logic for ProductBarcode
+	fmt.Printf("DEBUG: Would delete %d ProductBarcode items\n", len(deletes))
 	return nil
 }
 
-// ================================================================================
-// 7. UTILITY/HELPER FUNCTIONS
-// ================================================================================
-
-// executeBatchInsert ทำการ insert ข้อมูลเป็น batch
-func (api *APIClient) executeBatchInsert(tableName string, columns []string, values []string) error {
-	if len(values) == 0 {
-		return nil
-	}
-
-	columnsStr := strings.Join(columns, ", ")
-	query := fmt.Sprintf("INSERT INTO %s (%s) VALUES %s",
-		tableName, columnsStr, strings.Join(values, ","))
-
-	resp, err := api.ExecuteCommand(query)
-	if err != nil {
-		return err
-	}
-
-	if !resp.Success {
-		return fmt.Errorf("failed to batch insert: %s", resp.Message)
-	}
-
+func (api *APIClient) executeBatchUpdateProductBarcode(updates []interface{}) error {
+	// Implement batch update logic for ProductBarcode
+	fmt.Printf("DEBUG: Would update %d ProductBarcode items\n", len(updates))
 	return nil
 }

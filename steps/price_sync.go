@@ -63,7 +63,7 @@ func (s *PriceSyncStep) GetAllPricesFromSource() ([]int, []interface{}, []interf
 	var inserts []interface{}
 	var updates []interface{}
 
-	querySync := "SELECT id, row_order_ref, active_code FROM sml_market_sync ORDER BY active_code DESC"
+	querySync := "SELECT id, row_order_ref, active_code FROM sml_market_sync where table_id = 1 ORDER BY active_code DESC"
 
 	rowsSync, errSync := s.db.Query(querySync)
 	if errSync != nil {

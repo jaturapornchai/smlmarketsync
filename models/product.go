@@ -177,58 +177,6 @@ func (r *ProductRepository) Delete(id int) error {
 	return err
 }
 
-// GetAllInventoryItemsFromSource ดึงข้อมูลสินค้าทั้งหมดจากฐานข้อมูลต้นทาง
-func (r *ProductRepository) GetAllInventoryItemsFromSource() ([]InventoryItem, error) {
-	fmt.Println("กำลังดึงข้อมูลสินค้าจาก ic_inventory_barcode...")
-	// Query ตามที่คุณระบุ
-	query := `
-		SELECT 
-			ic_code,
-			barcode,
-			coalesce((SELECT name_1 FROM ic_inventory WHERE code=ic_code), 'XX') as name,
-			unit_code,
-			coalesce((SELECT name_1 FROM ic_unit WHERE code=unit_code), 'XX') as unit_name
-		FROM ic_inventory_barcode where name is not null and name != ''
-		ORDER BY barcode`
-
-	fmt.Println("กำลังดึงข้อมูลสินค้าทั้งหมดจากฐานข้อมูลต้นทาง...")
-	rows, err := r.db.Query(query)
-	if err != nil {
-		return nil, fmt.Errorf("error querying inventory items: %v", err)
-	}
-	defer rows.Close()
-
-	var items []InventoryItem
-	for rows.Next() {
-		var item InventoryItem
-		var name, unitName sql.NullString
-
-		err := rows.Scan(
-			&item.IcCode,
-			&item.Barcode,
-			&name,
-			&item.UnitCode,
-			&unitName,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("error scanning row: %v", err)
-		}
-
-		// ใส่ข้อมูลที่ได้จาก query
-		if name.Valid {
-			item.Name = name.String
-		}
-		if unitName.Valid {
-			item.UnitName = unitName.String
-		}
-
-		items = append(items, item)
-	}
-
-	fmt.Printf("ดึงข้อมูลสินค้าจากฐานข้อมูลต้นทางได้ %d รายการ\n", len(items))
-	return items, nil
-}
-
 // UploadInventoryItemsBatch upload ข้อมูลสินค้าเป็น batch
 func (r *ProductRepository) UploadInventoryItemsBatch(items []InventoryItem, batchSize int) error {
 	totalItems := len(items)
@@ -312,15 +260,7 @@ func (r *ProductRepository) uploadBatchViaAPI(items []InventoryItem) error {
 		INSERT INTO ic_inventory_barcode 
 		(ic_code, barcode, name, unit_code, unit_name)
 		VALUES %s
-		ON CONFLICT (barcode) DO UPDATE SET
-			ic_code = EXCLUDED.ic_code,
-			name = EXCLUDED.name,
-			unit_code = EXCLUDED.unit_code,
-			unit_name = EXCLUDED.unit_name
-		WHERE ic_inventory_barcode.name IS DISTINCT FROM EXCLUDED.name
-			OR ic_inventory_barcode.ic_code IS DISTINCT FROM EXCLUDED.ic_code
-			OR ic_inventory_barcode.unit_code IS DISTINCT FROM EXCLUDED.unit_code
-			OR ic_inventory_barcode.unit_name IS DISTINCT FROM EXCLUDED.unit_name`,
+		`,
 		strings.Join(valueStrings, ","))
 
 	// ใช้ API client แทน direct database connection
@@ -428,7 +368,7 @@ func (r *ProductRepository) GetBalanceDataFromLocal() ([]interface{}, error) {
 	return results, nil
 }
 
-// SyncBalanceWithAPI ขั้นตอนที่ 5: ซิงค์ข้อมูล balance กับ API แบบ batch
+/*// SyncBalanceWithAPI ขั้นตอนที่ 5: ซิงค์ข้อมูล balance กับ API แบบ batch
 func (r *ProductRepository) SyncBalanceWithAPI() error {
 	fmt.Println("กำลังตรวจสอบและสร้างตาราง ic_balance บน API...")
 
@@ -463,7 +403,7 @@ func (r *ProductRepository) SyncBalanceWithAPI() error {
 
 	return nil
 }
-
+*/
 // GetAllCustomersFromSource ดึงข้อมูลลูกค้าทั้งหมดจากฐานข้อมูลต้นทาง
 func (r *ProductRepository) GetAllCustomersFromSource() ([]interface{}, error) {
 	query := `
@@ -517,7 +457,7 @@ func (r *ProductRepository) GetAllCustomersFromSource() ([]interface{}, error) {
 	return customers, nil
 }
 
-// SyncCustomerWithAPI ซิงค์ข้อมูลลูกค้ากับ API
+/*// SyncCustomerWithAPI ซิงค์ข้อมูลลูกค้ากับ API
 func (r *ProductRepository) SyncCustomerWithAPI() error {
 	// 1. ตรวจสอบและสร้างตาราง ar_customer บน API
 	fmt.Println("กำลังตรวจสอบและสร้างตาราง ar_customer บน API...")
@@ -567,3 +507,4 @@ func (r *ProductRepository) SyncCustomerWithAPI() error {
 
 	return nil
 }
+*/

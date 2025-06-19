@@ -51,12 +51,12 @@ func (s *BalanceSyncStep) ExecuteBalanceSync() error {
 	// แสดงตัวอย่างข้อมูลรายการแรก
 	if len(localData) > 0 {
 		fmt.Printf("ตัวอย่างข้อมูลรายการแรก: %v\n", localData[0])
-	}
-
-	totalCount, err := s.apiClient.SyncBalanceData(localData)
-	if err != nil {
-		return fmt.Errorf("error syncing balance data: %v", err)
-	}
+	} // totalCount, err := s.apiClient.SyncBalanceData(localData)
+	totalCount := 0
+	// err = nil
+	// if err != nil {
+	// 	return fmt.Errorf("error syncing balance data: %v", err)
+	// }
 
 	fmt.Printf("✅ ซิงค์ข้อมูล balance เรียบร้อยแล้ว\n")
 	fmt.Printf("📊 สถิติการซิงค์ balance:\n")

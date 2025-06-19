@@ -116,6 +116,111 @@ func TriggerExists(db *sql.DB, tableName string) bool {
 	return exists
 }
 
+// PriceTriggerExists ตรวจสอบว่า trigger และ function สำหรับราคาสินค้ามีอยู่หรือไม่
+func PriceTriggerExists(db *sql.DB) bool {
+	// ตรวจสอบ trigger ที่ชื่อ price_changes_trigger
+	triggerQuery := `
+		SELECT EXISTS (
+			SELECT 1 FROM information_schema.triggers 
+			WHERE event_object_table = 'ic_inventory_price'
+			AND trigger_name = 'price_changes_trigger'
+		)
+	`
+	var triggerExists bool
+	err := db.QueryRow(triggerQuery).Scan(&triggerExists)
+	if err != nil {
+		log.Printf("❌ เกิดข้อผิดพลาดในการตรวจสอบ price trigger: %v", err)
+		return false
+	}
+
+	// ตรวจสอบ function ที่ชื่อ log_price_changes
+	functionQuery := `
+		SELECT EXISTS (
+			SELECT 1 FROM information_schema.routines 
+			WHERE routine_type = 'FUNCTION'
+			AND routine_name = 'log_price_changes'
+		)
+	`
+	var functionExists bool
+	err = db.QueryRow(functionQuery).Scan(&functionExists)
+	if err != nil {
+		log.Printf("❌ เกิดข้อผิดพลาดในการตรวจสอบ price function: %v", err)
+		return false
+	}
+
+	return triggerExists && functionExists
+}
+
+// InventoryTriggerExists ตรวจสอบว่า trigger และ function สำหรับสินค้ามีอยู่หรือไม่
+func InventoryTriggerExists(db *sql.DB) bool {
+	// ตรวจสอบ trigger ที่ชื่อ inventory_changes_trigger
+	triggerQuery := `
+		SELECT EXISTS (
+			SELECT 1 FROM information_schema.triggers 
+			WHERE event_object_table = 'ic_inventory'
+			AND trigger_name = 'inventory_changes_trigger'
+		)
+	`
+	var triggerExists bool
+	err := db.QueryRow(triggerQuery).Scan(&triggerExists)
+	if err != nil {
+		log.Printf("❌ เกิดข้อผิดพลาดในการตรวจสอบ inventory trigger: %v", err)
+		return false
+	}
+
+	// ตรวจสอบ function ที่ชื่อ log_inventory_changes
+	functionQuery := `
+		SELECT EXISTS (
+			SELECT 1 FROM information_schema.routines 
+			WHERE routine_type = 'FUNCTION'
+			AND routine_name = 'log_inventory_changes'
+		)
+	`
+	var functionExists bool
+	err = db.QueryRow(functionQuery).Scan(&functionExists)
+	if err != nil {
+		log.Printf("❌ เกิดข้อผิดพลาดในการตรวจสอบ inventory function: %v", err)
+		return false
+	}
+
+	return triggerExists && functionExists
+}
+
+// InventoryBarcodeTriggerExists ตรวจสอบว่า trigger และ function สำหรับ ic_inventory_barcode มีอยู่หรือไม่
+func InventoryBarcodeTriggerExists(db *sql.DB) bool {
+	// ตรวจสอบ trigger ที่ชื่อ inventory_barcode_changes_trigger
+	triggerQuery := `
+		SELECT EXISTS (
+			SELECT 1 FROM information_schema.triggers 
+			WHERE event_object_table = 'ic_inventory_barcode'
+			AND trigger_name = 'inventory_barcode_changes_trigger'
+		)
+	`
+	var triggerExists bool
+	err := db.QueryRow(triggerQuery).Scan(&triggerExists)
+	if err != nil {
+		log.Printf("❌ เกิดข้อผิดพลาดในการตรวจสอบ inventory barcode trigger: %v", err)
+		return false
+	}
+
+	// ตรวจสอบ function ที่ชื่อ log_inventory_barcode_changes
+	functionQuery := `
+		SELECT EXISTS (
+			SELECT 1 FROM information_schema.routines 
+			WHERE routine_type = 'FUNCTION'
+			AND routine_name = 'log_inventory_barcode_changes'
+		)
+	`
+	var functionExists bool
+	err = db.QueryRow(functionQuery).Scan(&functionExists)
+	if err != nil {
+		log.Printf("❌ เกิดข้อผิดพลาดในการตรวจสอบ inventory barcode function: %v", err)
+		return false
+	}
+
+	return triggerExists && functionExists
+}
+
 // CreatePriceTrigger สร้าง trigger สำหรับตาราง ic_inventory_price เพื่อติดตามการเปลี่ยนแปลง
 func CreatePriceTrigger(db *sql.DB) error {
 	// 1. สร้างฟังก์ชัน trigger
@@ -143,12 +248,12 @@ func CreatePriceTrigger(db *sql.DB) error {
 		END;
 		$$ LANGUAGE plpgsql;
 	`
-	
+
 	_, err := db.Exec(createFunctionQuery)
 	if err != nil {
 		return fmt.Errorf("ไม่สามารถสร้างฟังก์ชัน trigger: %v", err)
 	}
-	
+
 	// 2. สร้าง trigger ที่ใช้ฟังก์ชันข้างต้น
 	createTriggerQuery := `
 		DROP TRIGGER IF EXISTS price_changes_trigger ON ic_inventory_price;
@@ -156,11 +261,108 @@ func CreatePriceTrigger(db *sql.DB) error {
 		AFTER INSERT OR UPDATE OR DELETE ON ic_inventory_price
 		FOR EACH ROW EXECUTE FUNCTION log_price_changes();
 	`
-	
+
 	_, err = db.Exec(createTriggerQuery)
 	if err != nil {
 		return fmt.Errorf("ไม่สามารถสร้าง trigger: %v", err)
 	}
-	
+
+	return nil
+}
+
+// CreateInventoryTrigger สร้าง trigger สำหรับตาราง ic_inventory_barcode เพื่อติดตามการเปลี่ยนแปลง
+func CreateInventoryTrigger(db *sql.DB) error {
+	// 1. สร้างฟังก์ชัน trigger
+	createFunctionQuery := `
+		CREATE OR REPLACE FUNCTION log_inventory_changes()
+		RETURNS TRIGGER AS $$
+		BEGIN
+			IF TG_OP = 'INSERT' THEN
+				-- บันทึกข้อมูลการเพิ่มสินค้า หลัง Insert
+				INSERT INTO sml_market_sync (table_id, active_code, row_order_ref)
+				VALUES (2, 1, NEW.roworder);
+				
+			ELSIF TG_OP = 'UPDATE' THEN
+				-- บันทึกข้อมูลการอัพเดทสินค้า
+				INSERT INTO sml_market_sync (table_id, active_code, row_order_ref)
+				VALUES (2, 2, NEW.roworder);
+
+			ELSIF TG_OP = 'DELETE' THEN
+				-- บันทึกข้อมูลการลบสินค้า
+				INSERT INTO sml_market_sync (table_id, active_code, row_order_ref)
+				VALUES (2, 3, OLD.roworder);
+			END IF;
+			
+			RETURN NULL; 
+		END;
+		$$ LANGUAGE plpgsql;
+	`
+
+	_, err := db.Exec(createFunctionQuery)
+	if err != nil {
+		return fmt.Errorf("ไม่สามารถสร้างฟังก์ชัน inventory trigger: %v", err)
+	}
+	// 2. สร้าง trigger ที่ใช้ฟังก์ชันข้างต้น
+	createTriggerQuery := `
+		DROP TRIGGER IF EXISTS inventory_changes_trigger ON ic_inventory;
+		CREATE TRIGGER inventory_changes_trigger
+		AFTER INSERT OR UPDATE OR DELETE ON ic_inventory
+		FOR EACH ROW EXECUTE FUNCTION log_inventory_changes();
+	`
+
+	_, err = db.Exec(createTriggerQuery)
+	if err != nil {
+		return fmt.Errorf("ไม่สามารถสร้าง inventory trigger: %v", err)
+	}
+
+	return nil
+}
+
+// CreateInventoryBarcodeTrigger สร้าง trigger สำหรับตาราง ic_inventory_barcode เพื่อติดตามการเปลี่ยนแปลง
+func CreateInventoryBarcodeTrigger(db *sql.DB) error {
+	// 1. สร้างฟังก์ชัน trigger
+	createFunctionQuery := `
+		CREATE OR REPLACE FUNCTION log_inventory_barcode_changes()
+		RETURNS TRIGGER AS $$
+		BEGIN
+			IF TG_OP = 'INSERT' THEN
+				-- บันทึกข้อมูลการเพิ่มข้อมูลบาร์โค้ด หลัง Insert
+				INSERT INTO sml_market_sync (table_id, active_code, row_order_ref)
+				VALUES (3, 1, NEW.roworder);
+				
+			ELSIF TG_OP = 'UPDATE' THEN
+				-- บันทึกข้อมูลการอัพเดทข้อมูลบาร์โค้ด
+				INSERT INTO sml_market_sync (table_id, active_code, row_order_ref)
+				VALUES (3, 2, NEW.roworder);
+				
+			ELSIF TG_OP = 'DELETE' THEN
+				-- บันทึกข้อมูลการลบข้อมูลบาร์โค้ด
+				INSERT INTO sml_market_sync (table_id, active_code, row_order_ref)
+				VALUES (3, 3, OLD.roworder);
+			END IF;
+			
+			RETURN NULL; 
+		END;
+		$$ LANGUAGE plpgsql;
+	`
+
+	_, err := db.Exec(createFunctionQuery)
+	if err != nil {
+		return fmt.Errorf("ไม่สามารถสร้างฟังก์ชัน inventory barcode trigger: %v", err)
+	}
+
+	// 2. สร้าง trigger ที่ใช้ฟังก์ชันข้างต้น
+	createTriggerQuery := `
+		DROP TRIGGER IF EXISTS inventory_barcode_changes_trigger ON ic_inventory_barcode;
+		CREATE TRIGGER inventory_barcode_changes_trigger
+		AFTER INSERT OR UPDATE OR DELETE ON ic_inventory_barcode
+		FOR EACH ROW EXECUTE FUNCTION log_inventory_barcode_changes();
+	`
+
+	_, err = db.Exec(createTriggerQuery)
+	if err != nil {
+		return fmt.Errorf("ไม่สามารถสร้าง inventory barcode trigger: %v", err)
+	}
+
 	return nil
 }

@@ -1,0 +1,9 @@
+		SELECT 
+			ic_code, 
+			barcode,
+			coalesce((SELECT name_1 FROM ic_inventory WHERE code=ic_code), 'XX') as name,
+			unit_code,
+			coalesce((SELECT name_1 FROM ic_unit WHERE code=unit_code), 'XX') as unit_name 
+		FROM ic_inventory_barcode
+		WHERE barcode IS NOT NULL AND barcode != ''
+		ORDER BY barcode
