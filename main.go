@@ -28,7 +28,8 @@ func main() {
 		fmt.Println("✅ ตาราง sml_market_sync ถูกสร้างเรียบร้อยแล้ว")
 	} else {
 		fmt.Println("✅ ตาราง sml_market_sync มีอยู่แล้ว")
-	} // ตรวจสอบ บน database ว่ามี ใน table ic_inventory_price มี tigger หรือไม่
+	}
+	// ตรวจสอบ บน database ว่ามี ใน table ic_inventory_price มี tigger หรือไม่
 	if !config.PriceTriggerExists(db) {
 		// สร้าง trigger สำหรับ ic_inventory_price ถ้ายังไม่มี
 		err = config.CreatePriceTrigger(db)
@@ -38,6 +39,16 @@ func main() {
 		fmt.Println("✅ Trigger สำหรับ ic_inventory_price ถูกสร้างเรียบร้อยแล้ว")
 	} else {
 		fmt.Println("✅ Trigger สำหรับ ic_inventory_price มีอยู่แล้ว")
+	} // ตรวจสอบ บน database ว่ามี ใน table ic_inventory_price_formula มี tigger หรือไม่
+	if !config.PriceFormulaTriggerExists(db) {
+		// สร้าง trigger สำหรับ ic_inventory_price_formula ถ้ายังไม่มี
+		err = config.CreatePriceFormulaTrigger(db)
+		if err != nil {
+			log.Fatalf("Failed to create trigger for ic_inventory_price_formula: %v", err)
+		}
+		fmt.Println("✅ Trigger สำหรับ ic_inventory_price_formula ถูกสร้างเรียบร้อยแล้ว")
+	} else {
+		fmt.Println("✅ Trigger สำหรับ ic_inventory_price_formula มีอยู่แล้ว")
 	}
 
 	// ตรวจสอบ บน database ว่ามี ใน table ic_inventory มี tigger หรือไม่
@@ -86,7 +97,6 @@ func main() {
 		log.Fatalf("❌ Error in product sync steps: %v", err)
 	}
 	fmt.Println("✅ ขั้นตอนการ sync สินค้า เสร็จสิ้น")
-
 	// Sync Price
 	fmt.Println("\n🔄 เริ่มขั้นตอนการ sync ราคาสินค้า")
 	priceStep := steps.NewPriceSyncStep(db)
@@ -95,6 +105,15 @@ func main() {
 		log.Fatalf("❌ Error in price sync step: %v", err)
 	}
 	fmt.Println("✅ ขั้นตอนการ sync ราคาสินค้า เสร็จสิ้น")
+
+	// Sync Price Formula
+	fmt.Println("\n🔄 เริ่มขั้นตอนการ sync สูตรราคาสินค้า")
+	priceFormulaStep := steps.NewPriceFormulaSyncStep(db)
+	err = priceFormulaStep.ExecutePriceFormulaSync()
+	if err != nil {
+		log.Fatalf("❌ Error in price formula sync step: %v", err)
+	}
+	fmt.Println("✅ ขั้นตอนการ sync สูตรราคาสินค้า เสร็จสิ้น")
 
 	// Sync ProductBarcode
 	fmt.Println("\n🔄 เริ่มขั้นตอนการ sync ProductBarcode")
@@ -123,7 +142,6 @@ func main() {
 	}
 	fmt.Println("✅ ขั้นตอนการ sync balance เสร็จสิ้น")
 
-
 	fmt.Println("\n🎉 การซิงค์ข้อมูลเสร็จสิ้นทุกขั้นตอน!")
-	fmt.Println("ข้อมูลถูกซิงค์ครบทุกตาราง: ic_inventory_barcode, ic_balance, ar_customer, และ ic_inventory_price")
+	fmt.Println("ข้อมูลถูกซิงค์ครบทุกตาราง: ic_inventory_barcode, ic_balance, ar_customer, ic_inventory_price, และ ic_inventory_price_formula")
 }

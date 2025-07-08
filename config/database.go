@@ -450,3 +450,86 @@ func CreateCustomerTrigger(db *sql.DB) error {
 
 	return nil
 }
+
+// PriceFormulaTriggerExists ตรวจสอบว่า trigger และ function สำหรับสูตรราคาสินค้ามีอยู่หรือไม่
+func PriceFormulaTriggerExists(db *sql.DB) bool {
+	// ตรวจสอบ trigger ที่ชื่อ price_formula_changes_trigger
+	triggerQuery := `
+		SELECT EXISTS (
+			SELECT 1 FROM information_schema.triggers 
+			WHERE event_object_table = 'ic_inventory_price_formula'
+			AND trigger_name = 'price_formula_changes_trigger'
+		)
+	`
+	var triggerExists bool
+	err := db.QueryRow(triggerQuery).Scan(&triggerExists)
+	if err != nil {
+		log.Printf("❌ เกิดข้อผิดพลาดในการตรวจสอบ price formula trigger: %v", err)
+		return false
+	}
+
+	// ตรวจสอบ function ที่ชื่อ log_price_formula_changes
+	functionQuery := `
+		SELECT EXISTS (
+			SELECT 1 FROM information_schema.routines 
+			WHERE routine_type = 'FUNCTION'
+			AND routine_name = 'log_price_formula_changes'
+		)
+	`
+	var functionExists bool
+	err = db.QueryRow(functionQuery).Scan(&functionExists)
+	if err != nil {
+		log.Printf("❌ เกิดข้อผิดพลาดในการตรวจสอบ price formula function: %v", err)
+		return false
+	}
+
+	return triggerExists && functionExists
+}
+
+// CreatePriceFormulaTrigger สร้าง trigger สำหรับตาราง ic_inventory_price_formula เพื่อติดตามการเปลี่ยนแปลง
+func CreatePriceFormulaTrigger(db *sql.DB) error {
+	// 1. สร้างฟังก์ชัน trigger
+	createFunctionQuery := `
+		CREATE OR REPLACE FUNCTION log_price_formula_changes()
+		RETURNS TRIGGER AS $$
+		BEGIN
+			IF TG_OP = 'INSERT' THEN
+				-- บันทึกข้อมูลการเพิ่มสูตรราคา หลัง Insert
+				INSERT INTO sml_market_sync (table_id, active_code, row_order_ref)
+				VALUES (5, 1, NEW.roworder);
+				
+			ELSIF TG_OP = 'UPDATE' THEN
+				-- บันทึกข้อมูลการอัพเดทสูตรราคา
+				INSERT INTO sml_market_sync (table_id, active_code, row_order_ref)
+				VALUES (5, 2, NEW.roworder);
+				
+			ELSIF TG_OP = 'DELETE' THEN
+				-- บันทึกข้อมูลการลบสูตรราคา
+				INSERT INTO sml_market_sync (table_id, active_code, row_order_ref)
+				VALUES (5, 3, OLD.roworder);
+			END IF;
+			
+			RETURN NULL; 
+		END;
+		$$ LANGUAGE plpgsql;
+	`
+
+	_, err := db.Exec(createFunctionQuery)
+	if err != nil {
+		return fmt.Errorf("ไม่สามารถสร้างฟังก์ชัน trigger สำหรับสูตรราคา: %v", err)
+	}
+
+	// 2. สร้าง trigger ที่ใช้ฟังก์ชันข้างต้น
+	createTriggerQuery := `		DROP TRIGGER IF EXISTS price_formula_changes_trigger ON ic_inventory_price_formula;
+		CREATE TRIGGER price_formula_changes_trigger
+		AFTER INSERT OR UPDATE OR DELETE ON ic_inventory_price_formula
+		FOR EACH ROW EXECUTE FUNCTION log_price_formula_changes();
+	`
+
+	_, err = db.Exec(createTriggerQuery)
+	if err != nil {
+		return fmt.Errorf("ไม่สามารถสร้าง trigger สำหรับสูตรราคา: %v", err)
+	}
+
+	return nil
+}

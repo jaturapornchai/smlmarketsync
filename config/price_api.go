@@ -167,6 +167,263 @@ func (api *APIClient) SyncInventoryData(inserts []interface{}, updates []interfa
 	fmt.Printf("   - หมายเหตุ: activeCode = 2 จะถูกลบก่อน แล้ว insert ใหม่\n")
 }
 
+// CreatePriceFormulaTable สร้างตาราง ic_inventory_price_formula
+func (api *APIClient) CreatePriceFormulaTable() error {
+	query := `
+		CREATE TABLE IF NOT EXISTS ic_inventory_price_formula (
+			id SERIAL PRIMARY KEY,
+			row_order_ref INT DEFAULT 0,
+			ic_code VARCHAR(25) NOT NULL DEFAULT '',
+			unit_code VARCHAR(25) NOT NULL DEFAULT '',
+			sale_type SMALLINT NOT NULL DEFAULT 0,
+			price_0 VARCHAR(50) DEFAULT '',
+			price_1 VARCHAR(50) DEFAULT '',
+			price_2 VARCHAR(50) DEFAULT '',
+			price_3 VARCHAR(50) DEFAULT '',
+			price_4 VARCHAR(50) DEFAULT '',
+			price_5 VARCHAR(50) DEFAULT '',
+			price_6 VARCHAR(50) DEFAULT '',
+			price_7 VARCHAR(50) DEFAULT '',
+			price_8 VARCHAR(50) DEFAULT '',
+			price_9 VARCHAR(50) DEFAULT '',
+			tax_type SMALLINT NOT NULL DEFAULT 0,
+			price_currency SMALLINT DEFAULT 0,
+			currency_code VARCHAR(25) DEFAULT ''
+		)
+	`
+
+	resp, err := api.ExecuteCommand(query)
+	if err != nil {
+		// Try to continue even if there's an error, the table might already exist
+		fmt.Printf("⚠️ Warning: Error creating price formula table, continuing anyway: %v\n", err)
+		return nil
+	}
+
+	if !resp.Success {
+		// Try to continue even if there's an error, the table might already exist
+		fmt.Printf("⚠️ Warning: Failed to create price formula table, continuing anyway: %s\n", resp.Message)
+		return nil
+	}
+
+	return nil
+}
+
+// SyncPriceFormulaData ซิงค์ข้อมูลสูตรราคาสินค้าแบบ batch (แยกเป็นการเพิ่มและลบ)
+// activeCode = 2 จะถูกประมวลผลแบบ: ลบก่อน แล้ว insert ใหม่
+func (api *APIClient) SyncPriceFormulaData(syncIds []int, inserts []interface{}, updates []interface{}, deletes []interface{}) {
+	if len(inserts) == 0 && len(updates) == 0 && len(deletes) == 0 && len(syncIds) == 0 {
+		fmt.Println("ℹ️ ไม่มีข้อมูลสูตรราคาที่ต้องดำเนินการ")
+		return
+	}
+
+	// 1. ลบข้อมูลจาก sml_market_sync ด้วย syncIds
+	if len(syncIds) > 0 {
+		_, err := api.deleteFromTable("sml_market_sync", "id", toInterfaceSlice(syncIds), false)
+		if err != nil {
+			fmt.Printf("⚠️ Warning: ไม่สามารถลบข้อมูลจาก sml_market_sync ได้: %v\n", err)
+		}
+	}
+
+	// 2. Handle deletes (ลบข้อมูลบน server)
+	if len(deletes) > 0 {
+		fmt.Printf("🗑️ กำลังลบข้อมูลสูตรราคาสินค้า %d รายการ\n", len(deletes))
+		api.executeBatchDeletePriceFormula(deletes)
+	}
+
+	// 3. Handle inserts (เพิ่มข้อมูลใหม่)
+	if len(inserts) > 0 {
+		fmt.Printf("📝 กำลังเพิ่มข้อมูลสูตรราคาสินค้า %d รายการ\n", len(inserts))
+		api.executeBatchInsertPriceFormula(inserts)
+	}
+
+	// 4. Handle updates (อัพเดทข้อมูล)
+	if len(updates) > 0 {
+		fmt.Printf("🔄 กำลังอัพเดทข้อมูลสูตรราคาสินค้า %d รายการ\n", len(updates))
+		api.executeBatchUpdatePriceFormula(updates)
+	}
+
+	fmt.Println("✅ ซิงค์ข้อมูลสูตรราคาสินค้าเสร็จสิ้น")
+}
+
+// executeBatchDeletePriceFormula ลบข้อมูลสูตรราคาสินค้าแบบ batch
+func (api *APIClient) executeBatchDeletePriceFormula(deletes []interface{}) error {
+	if len(deletes) == 0 {
+		return nil
+	}
+
+	success, err := api.deleteFromTable("ic_inventory_price_formula", "row_order_ref", deletes, true)
+	if err != nil {
+		fmt.Printf("❌ Error deleting price formula data: %v\n", err)
+		return err
+	}
+
+	fmt.Printf("✅ ลบข้อมูลสูตรราคาสินค้าสำเร็จ: %d รายการ\n", success)
+	return nil
+}
+
+// executeBatchInsertPriceFormula เพิ่มข้อมูลสูตรราคาสินค้าแบบ batch
+func (api *APIClient) executeBatchInsertPriceFormula(inserts []interface{}) error {
+	if len(inserts) == 0 {
+		return nil
+	}
+
+	const batchSize = 50 // ลดขนาด batch เพราะ field เยอะ
+	totalInserted := 0
+
+	for i := 0; i < len(inserts); i += batchSize {
+		end := i + batchSize
+		if end > len(inserts) {
+			end = len(inserts)
+		}
+
+		currentBatch := inserts[i:end]
+		var values []string
+		for _, item := range currentBatch {
+			if itemMap, ok := item.(map[string]interface{}); ok {
+				// รับค่าเฉพาะ field ที่ต้องการ
+				rowOrderRef := fmt.Sprintf("%v", itemMap["row_order_ref"])
+				icCode := fmt.Sprintf("%v", itemMap["ic_code"])
+				unitCode := fmt.Sprintf("%v", itemMap["unit_code"])
+				saleType := fmt.Sprintf("%v", itemMap["sale_type"])
+				price0 := fmt.Sprintf("%v", itemMap["price_0"])
+				price1 := fmt.Sprintf("%v", itemMap["price_1"])
+				price2 := fmt.Sprintf("%v", itemMap["price_2"])
+				price3 := fmt.Sprintf("%v", itemMap["price_3"])
+				price4 := fmt.Sprintf("%v", itemMap["price_4"])
+				price5 := fmt.Sprintf("%v", itemMap["price_5"])
+				price6 := fmt.Sprintf("%v", itemMap["price_6"])
+				price7 := fmt.Sprintf("%v", itemMap["price_7"])
+				price8 := fmt.Sprintf("%v", itemMap["price_8"])
+				price9 := fmt.Sprintf("%v", itemMap["price_9"])
+				taxType := fmt.Sprintf("%v", itemMap["tax_type"])
+				priceCurrency := fmt.Sprintf("%v", itemMap["price_currency"])
+				currencyCode := fmt.Sprintf("%v", itemMap["currency_code"])
+
+				// Escape single quotes for string fields
+				icCode = strings.ReplaceAll(icCode, "'", "''")
+				unitCode = strings.ReplaceAll(unitCode, "'", "''")
+				price0 = strings.ReplaceAll(price0, "'", "''")
+				price1 = strings.ReplaceAll(price1, "'", "''")
+				price2 = strings.ReplaceAll(price2, "'", "''")
+				price3 = strings.ReplaceAll(price3, "'", "''")
+				price4 = strings.ReplaceAll(price4, "'", "''")
+				price5 = strings.ReplaceAll(price5, "'", "''")
+				price6 = strings.ReplaceAll(price6, "'", "''")
+				price7 = strings.ReplaceAll(price7, "'", "''")
+				price8 = strings.ReplaceAll(price8, "'", "''")
+				price9 = strings.ReplaceAll(price9, "'", "''")
+				currencyCode = strings.ReplaceAll(currencyCode, "'", "''")
+
+				value := fmt.Sprintf("(%s, '%s', '%s', %s, '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', %s, %s, '%s')",
+					rowOrderRef, icCode, unitCode, saleType, price0, price1, price2, price3, price4, price5, price6, price7, price8, price9, taxType, priceCurrency, currencyCode)
+				values = append(values, value)
+			}
+		}
+
+		if len(values) > 0 {
+			query := fmt.Sprintf(`
+				INSERT INTO ic_inventory_price_formula (row_order_ref, ic_code, unit_code, sale_type, price_0, price_1, price_2, price_3, 
+				price_4, price_5, price_6, price_7, price_8, price_9, tax_type, price_currency, currency_code)
+				VALUES %s
+			`, strings.Join(values, ","))
+
+			resp, err := api.ExecuteCommand(query)
+			if err != nil {
+				fmt.Printf("❌ Error inserting price formula batch %d-%d: %v\n", i+1, end, err)
+				continue
+			}
+
+			if !resp.Success {
+				fmt.Printf("❌ Failed to insert price formula batch %d-%d: %s\n", i+1, end, resp.Message)
+				continue
+			}
+
+			totalInserted += len(values)
+			fmt.Printf("   ✅ เพิ่มข้อมูลสูตรราคาสินค้า batch สำเร็จ: %d รายการ\n", len(values))
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	fmt.Printf("✅ เพิ่มข้อมูลสูตรราคาสินค้าเรียบร้อยแล้ว: %d รายการ\n", totalInserted)
+	return nil
+}
+
+// executeBatchUpdatePriceFormula อัพเดทข้อมูลสูตรราคาสินค้าแบบ batch
+func (api *APIClient) executeBatchUpdatePriceFormula(updates []interface{}) error {
+	if len(updates) == 0 {
+		return nil
+	}
+
+	totalUpdated := 0
+	for i, item := range updates {
+		if itemMap, ok := item.(map[string]interface{}); ok {
+			rowOrderRef := fmt.Sprintf("%v", itemMap["row_order_ref"])
+			icCode := fmt.Sprintf("%v", itemMap["ic_code"])
+			unitCode := fmt.Sprintf("%v", itemMap["unit_code"])
+			saleType := fmt.Sprintf("%v", itemMap["sale_type"])
+			price0 := fmt.Sprintf("%v", itemMap["price_0"])
+			price1 := fmt.Sprintf("%v", itemMap["price_1"])
+			price2 := fmt.Sprintf("%v", itemMap["price_2"])
+			price3 := fmt.Sprintf("%v", itemMap["price_3"])
+			price4 := fmt.Sprintf("%v", itemMap["price_4"])
+			price5 := fmt.Sprintf("%v", itemMap["price_5"])
+			price6 := fmt.Sprintf("%v", itemMap["price_6"])
+			price7 := fmt.Sprintf("%v", itemMap["price_7"])
+			price8 := fmt.Sprintf("%v", itemMap["price_8"])
+			price9 := fmt.Sprintf("%v", itemMap["price_9"])
+			taxType := fmt.Sprintf("%v", itemMap["tax_type"])
+			priceCurrency := fmt.Sprintf("%v", itemMap["price_currency"])
+			currencyCode := fmt.Sprintf("%v", itemMap["currency_code"])
+
+			// Escape single quotes for string fields
+			icCode = strings.ReplaceAll(icCode, "'", "''")
+			unitCode = strings.ReplaceAll(unitCode, "'", "''")
+			price0 = strings.ReplaceAll(price0, "'", "''")
+			price1 = strings.ReplaceAll(price1, "'", "''")
+			price2 = strings.ReplaceAll(price2, "'", "''")
+			price3 = strings.ReplaceAll(price3, "'", "''")
+			price4 = strings.ReplaceAll(price4, "'", "''")
+			price5 = strings.ReplaceAll(price5, "'", "''")
+			price6 = strings.ReplaceAll(price6, "'", "''")
+			price7 = strings.ReplaceAll(price7, "'", "''")
+			price8 = strings.ReplaceAll(price8, "'", "''")
+			price9 = strings.ReplaceAll(price9, "'", "''")
+			currencyCode = strings.ReplaceAll(currencyCode, "'", "''")
+
+			updateQuery := fmt.Sprintf(`
+				UPDATE ic_inventory_price_formula 
+				SET ic_code = '%s', unit_code = '%s', sale_type = %s, price_0 = '%s', price_1 = '%s', price_2 = '%s', 
+				    price_3 = '%s', price_4 = '%s', price_5 = '%s', price_6 = '%s', price_7 = '%s', 
+				    price_8 = '%s', price_9 = '%s', tax_type = %s, price_currency = %s, 
+				    currency_code = '%s'
+				WHERE row_order_ref = %s
+			`, icCode, unitCode, saleType, price0, price1, price2, price3, price4, price5, price6, price7,
+				price8, price9, taxType, priceCurrency, currencyCode, rowOrderRef)
+
+			resp, err := api.ExecuteCommand(updateQuery)
+			if err != nil {
+				fmt.Printf("❌ Error updating price formula record %d: %v\n", i+1, err)
+				continue
+			}
+
+			if !resp.Success {
+				fmt.Printf("❌ Failed to update price formula record %d: %s\n", i+1, resp.Message)
+				continue
+			}
+
+			totalUpdated++
+		}
+
+		if (i+1)%100 == 0 {
+			fmt.Printf("   ⏳ อัพเดทข้อมูลสูตรราคาสินค้าแล้ว: %d/%d รายการ\n", i+1, len(updates))
+		}
+	}
+
+	fmt.Printf("✅ อัพเดทข้อมูลสูตรราคาสินค้าเรียบร้อยแล้ว: %d รายการ\n", totalUpdated)
+	return nil
+}
+
 // Helper functions สำหรับ price sync
 func parseFloatValue(value interface{}) string {
 	if value == nil {

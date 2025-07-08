@@ -29,7 +29,7 @@ type InventoryItem struct {
 	RowOrderRef      int    `json:"row_order_ref"`
 	IcCode           string `json:"ic_code"`
 	Name             string `json:"name"`
-	ItemType        int `json:"item_type"`
+	ItemType         int    `json:"item_type"`
 	UnitStandardCode string `json:"unit_standard_code"`
 }
 
@@ -53,8 +53,8 @@ type BalanceItem struct {
 // CustomerItem สำหรับข้อมูล ar_customer
 type CustomerItem struct {
 	RowOrderRef int    `json:"row_order_ref"`
-	Code       string `json:"code"`
-	PriceLevel string `json:"price_level"`
+	Code        string `json:"code"`
+	PriceLevel  string `json:"price_level"`
 }
 
 // PriceItem สำหรับข้อมูล ic_inventory_price
@@ -74,4 +74,25 @@ type PriceItem struct {
 	SalePrice2  float64 `json:"sale_price2"`
 	CustGroup1  string  `json:"cust_group_1"`
 	PriceMode   string  `json:"price_mode"`
+}
+
+// PriceFormulaItem สำหรับข้อมูล ic_price_formula
+type PriceFormulaItem struct {
+	RowOrderRef int     `json:"row_order_ref"`
+	IcCode        string `json:"ic_code"`
+	UnitCode      string `json:"unit_code"`
+	SaleType      int    `json:"sale_type"`
+	Price0        string `json:"price_0"`
+	Price1        string `json:"price_1"`
+	Price2        string `json:"price_2"`
+	Price3        string `json:"price_3"`
+	Price4        string `json:"price_4"`
+	Price5        string `json:"price_5"`
+	Price6        string `json:"price_6"`
+	Price7        string `json:"price_7"`
+	Price8        string `json:"price_8"`
+	Price9        string `json:"price_9"`
+	TaxType       int    `json:"tax_type"`
+	PriceCurrency int    `json:"price_currency"`
+	CurrencyCode  string `json:"currency_code"`
 }
