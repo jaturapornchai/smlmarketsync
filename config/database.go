@@ -42,6 +42,24 @@ func NewDatabaseConfig() *DatabaseConfig {
 
 func (config *DatabaseConfig) Connect() (*sql.DB, error) {
 	psqlInfo := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
+		config.Host, config.Port, config.User, config.Password, config.DBName+"_images")
+
+	db, err := sql.Open("postgres", psqlInfo)
+	if err != nil {
+		return nil, fmt.Errorf("error opening database: %v", err)
+	}
+
+	err = db.Ping()
+	if err != nil {
+		return nil, fmt.Errorf("error connecting to database: %v", err)
+	}
+
+	log.Println("Successfully connected to PostgreSQL database!")
+	return db, nil
+}
+
+func (config *DatabaseConfig) ConnectDBImage() (*sql.DB, error) {
+	psqlInfo := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
 		config.Host, config.Port, config.User, config.Password, config.DBName)
 
 	db, err := sql.Open("postgres", psqlInfo)
@@ -254,13 +272,14 @@ func CreatePriceTrigger(db *sql.DB) error {
 		return fmt.Errorf("ไม่สามารถสร้างฟังก์ชัน trigger: %v", err)
 	}
 
+	dropTriggerQuery := `DROP TRIGGER IF EXISTS price_changes_trigger ON ic_inventory_price;`
+	_, err = db.Exec(dropTriggerQuery)
+	if err != nil {
+		return fmt.Errorf("ไม่สามารถสร้าง trigger: %v", err)
+	}
+
 	// 2. สร้าง trigger ที่ใช้ฟังก์ชันข้างต้น
-	createTriggerQuery := `
-		DROP TRIGGER IF EXISTS price_changes_trigger ON ic_inventory_price;
-		CREATE TRIGGER price_changes_trigger
-		AFTER INSERT OR UPDATE OR DELETE ON ic_inventory_price
-		FOR EACH ROW EXECUTE FUNCTION log_price_changes();
-	`
+	createTriggerQuery := `CREATE TRIGGER price_changes_trigger AFTER INSERT OR UPDATE OR DELETE ON ic_inventory_price FOR EACH ROW EXECUTE FUNCTION log_price_changes();`
 
 	_, err = db.Exec(createTriggerQuery)
 	if err != nil {
