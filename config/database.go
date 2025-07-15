@@ -42,7 +42,7 @@ func NewDatabaseConfig() *DatabaseConfig {
 
 func (config *DatabaseConfig) Connect() (*sql.DB, error) {
 	psqlInfo := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
-		config.Host, config.Port, config.User, config.Password, config.DBName+"_images")
+		config.Host, config.Port, config.User, config.Password, config.DBName)
 
 	db, err := sql.Open("postgres", psqlInfo)
 	if err != nil {
@@ -60,7 +60,7 @@ func (config *DatabaseConfig) Connect() (*sql.DB, error) {
 
 func (config *DatabaseConfig) ConnectDBImage() (*sql.DB, error) {
 	psqlInfo := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
-		config.Host, config.Port, config.User, config.Password, config.DBName)
+		config.Host, config.Port, config.User, config.Password, config.DBName+"_images")
 
 	db, err := sql.Open("postgres", psqlInfo)
 	if err != nil {

@@ -62,7 +62,7 @@ import (
 // ================================================================================
 
 const (
-	APIBaseURL      = "http://192.168.2.36:8008/v1"
+	APIBaseURL      = "https://changthaigoapi.dedecafe.com/v1"
 	SelectEndpoint  = "/pgselect"
 	CommandEndpoint = "/pgcommand"
 )
@@ -641,6 +641,24 @@ func (api *APIClient) executeBatchDeleteCustomer(deletes []interface{}) error {
 }
 
 func (api *APIClient) SyncInventoryBalanceData(data []interface{}) (int, error) {
+
+	// ดึงเฉพาะสินค้าทที่ต้องการ sync
+	if len(data) == 0 {
+		fmt.Println("⚠️ ไม่มีข้อมูล balance ที่ต้องการ sync")
+		return 0, nil
+	}
+
+	itemCodes := make([]string, 0, len(data))
+	for _, item := range data {
+		if itemMap, ok := item.(map[string]interface{}); ok {
+			if icCode, exists := itemMap["ic_code"]; exists {
+				if icCodeStr, ok := icCode.(string); ok && icCodeStr != "" {
+					itemCodes = append(itemCodes, icCodeStr)
+				}
+			}
+		}
+	}
+
 	fmt.Printf("🔄 กำลัง sync ข้อมูล balance %d รายการ\n", len(data))
 
 	// ดึงข้อมูลเดิมจาก server มาไว้ใน memory ใช้ API (แบบแบ่งหน้า)
@@ -653,7 +671,7 @@ func (api *APIClient) SyncInventoryBalanceData(data []interface{}) (int, error) 
 
 	for {
 		// ดึงข้อมูลครั้งละ 10,000 รายการ
-		query := fmt.Sprintf("SELECT ic_code, wh_code, unit_code, balance_qty FROM ic_balance LIMIT %d OFFSET %d", batchSize, offset)
+		query := fmt.Sprintf("SELECT ic_code, wh_code, unit_code, balance_qty FROM ic_balance WHERE ic_code in ("+"'"+strings.Join(itemCodes, "','")+"'"+") LIMIT %d OFFSET %d", batchSize, offset)
 		resp, err := api.ExecuteSelect(query)
 
 		if err != nil {

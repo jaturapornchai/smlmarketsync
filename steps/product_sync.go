@@ -56,6 +56,38 @@ func (s *ProductSyncStep) ExecuteProductSync() error {
 	s.apiClient.SyncInventoryData(inserts, updates, deletes) // ส่ง nil แทน syncIds เพราะเราลบเองแล้ว
 	fmt.Println("✅ ซิงค์ข้อมูลสินค้าเรียบร้อยแล้ว")
 
+	// 5. sync ยอดคงเหลือ
+	itemCodes := make([]string, 0, len(inserts))
+	for _, item := range inserts {
+		if code, ok := item.(map[string]interface{})["code"]; ok {
+			if codeStr, ok := code.(string); ok {
+				itemCodes = append(itemCodes, codeStr)
+			}
+		}
+	}
+
+	// for _, item := range updates {
+	// 	if code, ok := item.(map[string]interface{})["code"]; ok {
+	// 		if codeStr, ok := code.(string); ok {
+	// 			itemCodes = append(itemCodes, codeStr)
+	// 		}
+	// 	}
+	// }
+
+	// for _, item := range deletes {
+	// 	if code, ok := item.(int); ok {
+	// 		itemCodes = append(itemCodes, strconv.Itoa(code))
+	// 	}
+	// }
+
+	// itemCodes = append(itemCodes, "00000000") // เพิ่มรหัสสินค้า default
+
+	balanceSyncSetp := NewBalanceSyncStep(s.db)
+	err = balanceSyncSetp.ExecuteBalanceUpdateSync(itemCodes)
+
+	if err != nil {
+		return fmt.Errorf("error syncing balance update: %v", err)
+	}
 	return nil
 }
 

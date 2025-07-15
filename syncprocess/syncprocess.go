@@ -67,14 +67,14 @@ func (s *SyncProcess) StartSyncProcess(endSignal <-chan bool) {
 	}
 	fmt.Println("✅ ขั้นตอนการ sync ลูกค้า เสร็จสิ้น")
 
-	// Sync Balance
-	fmt.Println("\n🔄 เริ่มขั้นตอนการ sync balance")
-	balanceStep := steps.NewBalanceSyncStep(s.db)
-	err = balanceStep.ExecuteBalanceSync()
-	if err != nil {
-		log.Fatalf("❌ Error in balance sync step: %v", err)
-	}
-	fmt.Println("✅ ขั้นตอนการ sync balance เสร็จสิ้น")
+	// // Sync Balance
+	// fmt.Println("\n🔄 เริ่มขั้นตอนการ sync balance")
+	// balanceStep := steps.NewBalanceSyncStep(s.db)
+	// err = balanceStep.ExecuteBalanceSync()
+	// if err != nil {
+	// 	log.Fatalf("❌ Error in balance sync step: %v", err)
+	// }
+	// fmt.Println("✅ ขั้นตอนการ sync balance เสร็จสิ้น")
 
 	fmt.Println("\n🎉 การซิงค์ข้อมูลเสร็จสิ้นทุกขั้นตอน!")
 	fmt.Println("ข้อมูลถูกซิงค์ครบทุกตาราง: ic_inventory_barcode, ic_balance, ar_customer, ic_inventory_price, และ ic_inventory_price_formula")
