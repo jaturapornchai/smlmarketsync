@@ -704,7 +704,7 @@ func (api *APIClient) processInventoryInsertBatch(data []interface{}, batchSize 
 		if len(batchValues) > 0 {
 			query := fmt.Sprintf(`
 				INSERT INTO ic_inventory (
-					code,name,unit_standard_code,item_type,row_order_ref
+					code, name, unit_standard_code, item_type, row_order_ref, image_url
 				)
 				VALUES %s`,
 				strings.Join(batchValues, ","))
@@ -788,8 +788,14 @@ func prepInventoryDataValues(item map[string]interface{}) (string, error) {
 	name = strings.ReplaceAll(name, "'", "''")
 	unitStandardCode = strings.ReplaceAll(unitStandardCode, "'", "''")
 
-	value := fmt.Sprintf("('%s', '%s', '%s', %d, %d)",
-		code, name, unitStandardCode, itemType, rowOrderRef)
+	imageURL := ""
+	if item["image_url"] != nil {
+		imageURL = fmt.Sprintf("%v", item["image_url"])
+	}
+	imageURL = strings.ReplaceAll(imageURL, "'", "''")
+
+	value := fmt.Sprintf("('%s', '%s', '%s', %d, %d, '%s')",
+		code, name, unitStandardCode, itemType, rowOrderRef, imageURL)
 
 	return value, nil
 }

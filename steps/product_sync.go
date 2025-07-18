@@ -10,12 +10,14 @@ import (
 
 type ProductSyncStep struct {
 	db        *sql.DB
+	dbImage   *sql.DB
 	apiClient *config.APIClient
 }
 
-func NewProductSyncStep(db *sql.DB) *ProductSyncStep {
+func NewProductSyncStep(db *sql.DB, dbImage *sql.DB) *ProductSyncStep {
 	return &ProductSyncStep{
 		db:        db,
+		dbImage:   dbImage,
 		apiClient: config.NewAPIClient(),
 	}
 }
@@ -141,6 +143,17 @@ func (s *ProductSyncStep) GetAllInventoryFromSource() ([]int, []interface{}, []i
 				return nil, nil, nil, nil, fmt.Errorf("error scanning inventory row: %v", err)
 			}
 
+			// === ดึง guid_code ของรูปภาพ ===
+			var guidCode sql.NullString
+			imageRow := s.dbImage.QueryRow(
+				`SELECT guid_code FROM images WHERE image_id = $1 ORDER BY roworder LIMIT 1`, inventory.IcCode)
+			_ = imageRow.Scan(&guidCode)
+			imageURL := ""
+			if guidCode.Valid && guidCode.String != "" {
+				imageURL = fmt.Sprintf("%s/%s/%s.jpeg", config.UrlImagePublic, config.FolderName, guidCode.String)
+			}
+			inventory.ImageURL = imageURL
+
 			// แปลงเป็น map สำหรับ API
 			inventoryMap := map[string]interface{}{
 				"code":               inventory.IcCode,
@@ -148,6 +161,7 @@ func (s *ProductSyncStep) GetAllInventoryFromSource() ([]int, []interface{}, []i
 				"item_type":          inventory.ItemType,
 				"unit_standard_code": inventory.UnitStandardCode,
 				"row_order_ref":      rowOrderRef,
+				"image_url":          inventory.ImageURL,
 			}
 
 			// แยกประเภทตาม active_code
@@ -163,6 +177,7 @@ func (s *ProductSyncStep) GetAllInventoryFromSource() ([]int, []interface{}, []i
 		} else if activeCode == 3 {
 			deletes = append(deletes, rowOrderRef)
 		}
+
 	}
 
 	return syncIds, inserts, updates, deletes, nil
@@ -253,12 +268,14 @@ func (s *ProductSyncStep) DeleteSyncRecordsInBatches(syncIds []int, batchSize in
 
 type ProductBarcodeSyncStep struct {
 	db        *sql.DB
+	dbImage   *sql.DB
 	apiClient *config.APIClient
 }
 
-func NewProductBarcodeSyncStep(db *sql.DB) *ProductBarcodeSyncStep {
+func NewProductBarcodeSyncStep(db *sql.DB, dbImage *sql.DB) *ProductBarcodeSyncStep {
 	return &ProductBarcodeSyncStep{
 		db:        db,
+		dbImage:   dbImage,
 		apiClient: config.NewAPIClient(),
 	}
 }
@@ -352,7 +369,19 @@ func (s *ProductBarcodeSyncStep) GetAllProductBarcodeFromSource() ([]int, []inte
 					continue
 				}
 				return nil, nil, nil, nil, fmt.Errorf("error scanning ProductBarcode row: %v", err)
-			} // แปลงเป็น map สำหรับ API
+			}
+
+			// === ดึง guid_code ของรูปภาพ ===
+			var guidCode sql.NullString
+			imageRow := s.dbImage.QueryRow(
+				`SELECT guid_code FROM images WHERE image_id = $1 ORDER BY roworder LIMIT 1`, inventory.Barcode)
+			_ = imageRow.Scan(&guidCode)
+			imageURL := ""
+			if guidCode.Valid && guidCode.String != "" {
+				imageURL = fmt.Sprintf("%s/%s/%s.jpeg", config.UrlImagePublic, config.FolderName, guidCode.String)
+			}
+
+			// แปลงเป็น map สำหรับ API
 			inventoryMap := map[string]interface{}{
 				"row_order_ref": inventory.RowOrderRef,
 				"ic_code":       inventory.IcCode,
@@ -360,6 +389,7 @@ func (s *ProductBarcodeSyncStep) GetAllProductBarcodeFromSource() ([]int, []inte
 				"name":          inventory.Name,
 				"unit_code":     inventory.UnitCode,
 				"unit_name":     inventory.UnitName,
+				"image_url":     imageURL,
 			}
 
 			// แยกประเภทตาม active_code
@@ -375,6 +405,7 @@ func (s *ProductBarcodeSyncStep) GetAllProductBarcodeFromSource() ([]int, []inte
 		} else if activeCode == 3 {
 			deletes = append(deletes, rowOrderRef)
 		}
+
 	}
 
 	return syncIds, inserts, updates, deletes, nil

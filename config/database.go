@@ -551,4 +551,82 @@ func CreatePriceFormulaTrigger(db *sql.DB) error {
 	}
 
 	return nil
+
+}
+
+// ImagesTriggerExists ตรวจสอบว่า trigger และ function สำหรับ images มีอยู่หรือไม่
+func ImagesTriggerExists(db *sql.DB) bool {
+	triggerQuery := `
+        SELECT EXISTS (
+            SELECT 1 FROM information_schema.triggers 
+            WHERE event_object_table = 'images'
+            AND trigger_name = 'images_changes_trigger'
+        )
+    `
+	var triggerExists bool
+	err := db.QueryRow(triggerQuery).Scan(&triggerExists)
+	if err != nil {
+		log.Printf("❌ เกิดข้อผิดพลาดในการตรวจสอบ images trigger: %v", err)
+		return false
+	}
+
+	functionQuery := `
+        SELECT EXISTS (
+            SELECT 1 FROM information_schema.routines 
+            WHERE routine_type = 'FUNCTION'
+            AND routine_name = 'log_images_changes'
+        )
+    `
+	var functionExists bool
+	err = db.QueryRow(functionQuery).Scan(&functionExists)
+	if err != nil {
+		log.Printf("❌ เกิดข้อผิดพลาดในการตรวจสอบ images function: %v", err)
+		return false
+	}
+
+	return triggerExists && functionExists
+}
+
+// CreateImagesTrigger สร้าง trigger สำหรับตาราง images
+func CreateImagesTrigger(db *sql.DB) error {
+	createFunctionQuery := `
+        CREATE OR REPLACE FUNCTION log_images_changes()
+        RETURNS TRIGGER AS $$
+        BEGIN
+            IF TG_OP = 'INSERT' THEN
+                INSERT INTO sml_market_sync (table_id, active_code, row_order_ref)
+                VALUES (6, 1, NEW.roworder);
+            ELSIF TG_OP = 'UPDATE' THEN
+                INSERT INTO sml_market_sync (table_id, active_code, row_order_ref)
+                VALUES (6, 2, NEW.roworder);
+            ELSIF TG_OP = 'DELETE' THEN
+                INSERT INTO sml_market_sync (table_id, active_code, row_order_ref)
+                VALUES (6, 3, OLD.roworder);
+            END IF;
+            RETURN NULL;
+        END;
+        $$ LANGUAGE plpgsql;
+    `
+	_, err := db.Exec(createFunctionQuery)
+	if err != nil {
+		return fmt.Errorf("ไม่สามารถสร้างฟังก์ชัน images trigger: %v", err)
+	}
+
+	dropTriggerQuery := `DROP TRIGGER IF EXISTS images_changes_trigger ON images;`
+	_, err = db.Exec(dropTriggerQuery)
+	if err != nil {
+		return fmt.Errorf("ไม่สามารถลบ images trigger เดิม: %v", err)
+	}
+
+	createTriggerQuery := `
+        CREATE TRIGGER images_changes_trigger
+        AFTER INSERT OR UPDATE OR DELETE ON images
+        FOR EACH ROW EXECUTE FUNCTION log_images_changes();
+    `
+	_, err = db.Exec(createTriggerQuery)
+	if err != nil {
+		return fmt.Errorf("ไม่สามารถสร้าง images trigger: %v", err)
+	}
+
+	return nil
 }

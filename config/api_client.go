@@ -214,6 +214,7 @@ func (api *APIClient) CreateInventoryTable() error {
 		unit_standard_code VARCHAR(50),
 		item_type int DEFAULT 0, 
 		row_order_ref INT DEFAULT 0,
+		image_url TEXT,
 		PRIMARY KEY (code)
 	)`
 
@@ -249,6 +250,7 @@ func (api *APIClient) CreateInventoryBarcodeTable() error {
 		unit_code VARCHAR(50),
 		unit_name VARCHAR(100),
 		row_order_ref INT DEFAULT 0,
+		image_url TEXT,
 		PRIMARY KEY (barcode)
 	)`
 
@@ -417,13 +419,15 @@ func (api *APIClient) executeBatchInsertProductBarcode(inserts []interface{}) er
 			unitCode := fmt.Sprintf("%v", itemMap["unit_code"])
 			unitName := fmt.Sprintf("%v", itemMap["unit_name"])
 			rowOrderRef := fmt.Sprintf("%v", itemMap["row_order_ref"])
+			imageURL := fmt.Sprintf("%v", itemMap["image_url"])
 
 			// Escape single quotes
 			name = strings.ReplaceAll(name, "'", "''")
 			unitName = strings.ReplaceAll(unitName, "'", "''")
+			imageURL = strings.ReplaceAll(imageURL, "'", "''")
 
-			value := fmt.Sprintf("('%s', '%s', '%s', '%s', '%s', %s)",
-				icCode, barcode, name, unitCode, unitName, rowOrderRef)
+			value := fmt.Sprintf("('%s', '%s', '%s', '%s', '%s', %s, '%s')",
+				icCode, barcode, name, unitCode, unitName, rowOrderRef, imageURL)
 			values = append(values, value)
 		}
 	}
@@ -432,9 +436,9 @@ func (api *APIClient) executeBatchInsertProductBarcode(inserts []interface{}) er
 	}
 
 	query := fmt.Sprintf(`
-		INSERT INTO ic_inventory_barcode (ic_code, barcode, name, unit_code, unit_name, row_order_ref)
-		VALUES %s
-	`, strings.Join(values, ","))
+        INSERT INTO ic_inventory_barcode (ic_code, barcode, name, unit_code, unit_name, row_order_ref, image_url)
+        VALUES %s
+    `, strings.Join(values, ","))
 
 	resp, err := api.ExecuteCommand(query)
 	if err != nil {

@@ -4,19 +4,29 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"smlmarketsync/config"
 	"smlmarketsync/steps"
 )
 
-type SyncProcess struct {
-	db      *sql.DB
-	dbImage *sql.DB
+type ISyncProcess interface {
+	SyncImages() error
+	StartSyncProcess(endSignal <-chan bool)
 }
 
-func NewSyncProcess(db *sql.DB, dbImage *sql.DB) *SyncProcess {
-	return &SyncProcess{
-		db:      db,
-		dbImage: dbImage,
+type SyncProcess struct {
+	db              *sql.DB
+	dbImage         *sql.DB
+	imagePatternUrl string
+}
+
+func NewSyncProcess(db *sql.DB, dbImage *sql.DB) ISyncProcess {
+	config.LoadEnv()
+	sync := &SyncProcess{
+		db:              db,
+		dbImage:         dbImage,
+		imagePatternUrl: fmt.Sprintf("%s/%s/%%s.jpeg", config.UrlImagePublic, config.FolderName),
 	}
+	return sync
 }
 
 func (s *SyncProcess) StartSyncProcess(endSignal <-chan bool) {
@@ -25,7 +35,8 @@ func (s *SyncProcess) StartSyncProcess(endSignal <-chan bool) {
 	fmt.Println("🔄 เริ่มขั้นตอนการซิงค์ข้อมูล...")
 	// Sync สินค้า (Product/Inventory)
 	fmt.Println("\n🔄 เริ่มขั้นตอนการ sync สินค้า")
-	productStep := steps.NewProductSyncStep(s.db)
+	productStep := steps.NewProductSyncStep(s.db, s.dbImage)
+
 	err := productStep.ExecuteProductSync()
 	if err != nil {
 		log.Fatalf("❌ Error in product sync steps: %v", err)
@@ -51,7 +62,7 @@ func (s *SyncProcess) StartSyncProcess(endSignal <-chan bool) {
 
 	// Sync ProductBarcode
 	fmt.Println("\n🔄 เริ่มขั้นตอนการ sync ProductBarcode")
-	productBarcodeStep := steps.NewProductBarcodeSyncStep(s.db)
+	productBarcodeStep := steps.NewProductBarcodeSyncStep(s.db, s.dbImage)
 	err = productBarcodeStep.ExecuteProductBarcodeSync()
 	if err != nil {
 		log.Fatalf("❌ Error in ProductBarcode sync steps: %v", err)

@@ -31,6 +31,7 @@ type InventoryItem struct {
 	Name             string `json:"name"`
 	ItemType         int    `json:"item_type"`
 	UnitStandardCode string `json:"unit_standard_code"`
+	ImageURL         string `json:"image_url"`
 }
 
 type BarcodeItem struct {
@@ -78,7 +79,7 @@ type PriceItem struct {
 
 // PriceFormulaItem สำหรับข้อมูล ic_price_formula
 type PriceFormulaItem struct {
-	RowOrderRef int     `json:"row_order_ref"`
+	RowOrderRef   int    `json:"row_order_ref"`
 	IcCode        string `json:"ic_code"`
 	UnitCode      string `json:"unit_code"`
 	SaleType      int    `json:"sale_type"`

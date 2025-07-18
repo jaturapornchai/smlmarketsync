@@ -25,12 +25,18 @@ func main() {
 	syncprocess.VerifyTriggerDB(db)
 
 	dbImage, err := dbConfig.ConnectDBImage()
+
 	if err != nil {
 		log.Fatal("Failed to connect to image database:", err)
 	}
 	defer dbImage.Close()
 
-	syncProcess := syncprocess.NewSyncProcess(db, dbImage)
+	// ตรวจสอบและสร้าง trigger สำหรับ images
+	if !config.ImagesTriggerExists(dbImage) {
+		if err := config.CreateImagesTrigger(dbImage); err != nil {
+			log.Fatalf("❌ สร้าง images trigger ไม่สำเร็จ: %v", err)
+		}
+	}
 
 	exitChan := make(chan os.Signal, 1)
 	signal.Notify(exitChan, syscall.SIGINT, syscall.SIGTERM)
@@ -45,7 +51,14 @@ func main() {
 			default:
 				start := time.Now()
 
-				syncProcess.StartSyncProcess(done) // Run the task
+				process := syncprocess.NewSyncProcess(db, dbImage)
+				process.StartSyncProcess(done) // Run the task
+
+				// sync รูปภาพ
+				err := process.SyncImages()
+				if err != nil {
+					log.Printf("❌ SyncImages error: %v", err)
+				}
 
 				// Measure the time taken to run DoSomething
 				elapsed := time.Since(start)
