@@ -62,7 +62,7 @@ import (
 // ================================================================================
 
 const (
-	APIBaseURL      = "https://changthaigoapi.dedecafe.com/v1"
+	APIBaseURL      = "https://wawagoapi.dedecafe.com/v1"
 	SelectEndpoint  = "/pgselect"
 	CommandEndpoint = "/pgcommand"
 )

@@ -54,11 +54,11 @@ func main() {
 				process := syncprocess.NewSyncProcess(db, dbImage)
 				process.StartSyncProcess(done) // Run the task
 
-				// sync รูปภาพ
-				err := process.SyncImages()
-				if err != nil {
-					log.Printf("❌ SyncImages error: %v", err)
-				}
+				// // sync รูปภาพ
+				// err := process.SyncImages()
+				// if err != nil {
+				// 	log.Printf("❌ SyncImages error: %v", err)
+				// }
 
 				// Measure the time taken to run DoSomething
 				elapsed := time.Since(start)
