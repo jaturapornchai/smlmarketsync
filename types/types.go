@@ -56,6 +56,10 @@ type CustomerItem struct {
 	RowOrderRef int    `json:"row_order_ref"`
 	Code        string `json:"code"`
 	PriceLevel  string `json:"price_level"`
+	Name1       string `json:"name_1"`
+	NameEng1    string `json:"name_eng_1"`
+	Address     string `json:"address"`
+	Telephone   string `json:"telephone"`
 }
 
 // PriceItem สำหรับข้อมูล ic_inventory_price

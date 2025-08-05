@@ -315,6 +315,10 @@ func (api *APIClient) CreateCustomerTable() error {
 	CREATE TABLE IF NOT EXISTS ar_customer (
 		code VARCHAR(50) NOT NULL,
 		price_level VARCHAR(50),
+		name_1 VARCHAR(255),
+		name_eng_1 VARCHAR(255),
+		address VARCHAR(255),
+		telephone VARCHAR(15),
 		row_order_ref INT DEFAULT 0,
 		PRIMARY KEY (code)
 	)`
@@ -543,47 +547,94 @@ func (api *APIClient) executeBatchInsertCustomer(inserts []interface{}) error {
 	if len(inserts) == 0 {
 		return nil
 	}
-	var values []string
-	for _, item := range inserts {
-		if itemMap, ok := item.(map[string]interface{}); ok {
-			code := fmt.Sprintf("%v", itemMap["code"])
-			priceLevel := fmt.Sprintf("%v", itemMap["price_level"])
-			rowOrderRef := fmt.Sprintf("%v", itemMap["row_order_ref"])
-			// Escape single quotes
-			priceLevel = strings.ReplaceAll(priceLevel, "'", "''")
-			// สร้างค่า value สำหรับ insert
-			// ใช้ row_order_ref เป็น key ในการ insert
-			if rowOrderRef == "" {
-				return fmt.Errorf("row_order_ref is required")
-			}
-			if code == "" {
-				return fmt.Errorf("code is required")
-			}
-			if priceLevel == "" {
-				return fmt.Errorf("price_level is required")
-			}
-			value := fmt.Sprintf("('%s', '%s', '%s')", code, priceLevel, rowOrderRef)
-			values = append(values, value)
+
+	// แบ่งเป็น batch เล็กๆ เพื่อหลีกเลี่ยง query ยาวเกินไป
+	batchSize := 50 // ลดขนาด batch ลง
+	totalInserted := 0
+
+	for i := 0; i < len(inserts); i += batchSize {
+		end := i + batchSize
+		if end > len(inserts) {
+			end = len(inserts)
 		}
-	}
-	if len(values) == 0 {
-		return nil
+
+		currentBatch := inserts[i:end]
+		fmt.Printf("   📝 กำลังเพิ่มข้อมูลลูกค้า batch %d-%d จากทั้งหมด %d รายการ\n", i+1, end, len(inserts))
+
+		var values []string
+		for _, item := range currentBatch {
+			if itemMap, ok := item.(map[string]interface{}); ok {
+				code := api.escapeSQLString(fmt.Sprintf("%v", itemMap["code"]))
+				priceLevel := api.escapeSQLString(fmt.Sprintf("%v", itemMap["price_level"]))
+				name1 := api.escapeSQLString(fmt.Sprintf("%v", itemMap["name_1"]))
+				nameEng1 := api.escapeSQLString(fmt.Sprintf("%v", itemMap["name_eng_1"]))
+				address := api.escapeSQLString(fmt.Sprintf("%v", itemMap["address"]))
+				telephone := api.escapeSQLString(fmt.Sprintf("%v", itemMap["telephone"]))
+				rowOrderRef := fmt.Sprintf("%v", itemMap["row_order_ref"])
+
+				// ตรวจสอบข้อมูลจำเป็น
+				if rowOrderRef == "" || rowOrderRef == "<nil>" {
+					continue // ข้ามรายการที่ไม่มี row_order_ref
+				}
+				if code == "" || code == "<nil>" {
+					continue // ข้ามรายการที่ไม่มี code
+				}
+
+				value := fmt.Sprintf("('%s', '%s', '%s', '%s', '%s', '%s', %s)",
+					code, priceLevel, name1, nameEng1, address, telephone, rowOrderRef)
+				values = append(values, value)
+			}
+		}
+
+		if len(values) == 0 {
+			continue // ข้าม batch นี้ถ้าไม่มีข้อมูลที่ใช้ได้
+		}
+
+		query := fmt.Sprintf(`
+			INSERT INTO ar_customer (code, price_level, name_1, name_eng_1, address, telephone, row_order_ref)
+			VALUES %s
+		`, strings.Join(values, ","))
+
+		resp, err := api.ExecuteCommand(query)
+		if err != nil {
+			fmt.Printf("   ⚠️ Warning: ไม่สามารถเพิ่มข้อมูลลูกค้า batch %d-%d ได้: %v\n", i+1, end, err)
+			continue
+		}
+
+		if !resp.Success {
+			fmt.Printf("   ⚠️ Warning: เพิ่มข้อมูลลูกค้า batch %d-%d ล้มเหลว: %s\n", i+1, end, resp.Message)
+			continue
+		}
+
+		totalInserted += len(values)
+		fmt.Printf("   ✅ เพิ่มข้อมูลลูกค้า batch %d-%d สำเร็จ: %d รายการ\n", i+1, end, len(values))
+
+		// หน่วงเวลาเล็กน้อยระหว่าง batch
+		time.Sleep(100 * time.Millisecond)
 	}
 
-	query := fmt.Sprintf(`
-		INSERT INTO ar_customer (code, price_level, row_order_ref)
-		VALUES %s
-	`, strings.Join(values, ","))
-
-	resp, err := api.ExecuteCommand(query)
-	if err != nil {
-		return fmt.Errorf("error executing batch insert customer: %v", err)
-	}
-
-	if !resp.Success {
-		return fmt.Errorf("batch insert customer failed: %s", resp.Message)
-	}
+	fmt.Printf("📝 เพิ่มข้อมูลลูกค้าทั้งหมด: %d รายการ\n", totalInserted)
 	return nil
+}
+
+// escapeSQLString ปรับปรุงการ escape ข้อมูลสำหรับ SQL
+func (api *APIClient) escapeSQLString(s string) string {
+	if s == "<nil>" {
+		return ""
+	}
+	// Escape single quotes, backslashes และ characters อื่นๆ ที่อาจทำให้ SQL error
+	s = strings.ReplaceAll(s, "\\", "\\\\") // escape backslash ก่อน
+	s = strings.ReplaceAll(s, "'", "''")    // escape single quote
+	s = strings.ReplaceAll(s, "\r", "")     // ลบ carriage return
+	s = strings.ReplaceAll(s, "\n", " ")    // แปลง newline เป็น space
+	s = strings.ReplaceAll(s, "\t", " ")    // แปลง tab เป็น space
+
+	// ตัดข้อมูลให้อยู่ในขนาดที่เหมาะสม
+	if len(s) > 250 {
+		s = s[:250] // ตัดให้เหลือ 250 ตัวอักษร
+	}
+
+	return s
 }
 
 // executeBatchDeleteCustomer ลบข้อมูลลูกค้าแบบ batch

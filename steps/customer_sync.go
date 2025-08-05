@@ -88,7 +88,7 @@ func (s *CustomerSyncStep) GetAllCustomersFromSource() ([]int, []interface{}, []
 		if activeCode != 3 {
 			// ดึงข้อมูลลูกค้าจากตาราง ar_customer (local database)
 			queryGetData := `
-				SELECT roworder, code, price_level 
+				SELECT roworder, code, price_level, name_1, name_eng_1, address, telephone 
 				FROM ar_customer
 				WHERE roworder = $1 AND code IS NOT NULL AND code != ''
 			`
@@ -97,11 +97,15 @@ func (s *CustomerSyncStep) GetAllCustomersFromSource() ([]int, []interface{}, []
 			row := s.db.QueryRow(queryGetData, rowOrderRef)
 
 			var customer types.CustomerItem
-			var priceLevel sql.NullString
+			var priceLevel, name1, nameEng1, address, telephone sql.NullString
 			err := row.Scan(
 				&customer.RowOrderRef,
 				&customer.Code,
 				&priceLevel,
+				&name1,
+				&nameEng1,
+				&address,
+				&telephone,
 			)
 			if err != nil {
 				if err == sql.ErrNoRows {
@@ -111,16 +115,32 @@ func (s *CustomerSyncStep) GetAllCustomersFromSource() ([]int, []interface{}, []
 				return nil, nil, nil, nil, fmt.Errorf("error scanning customer row: %v", err)
 			}
 
-			// แปลง price_level
+			// แปลง nullable fields
 			if priceLevel.Valid {
 				customer.PriceLevel = priceLevel.String
+			}
+			if name1.Valid {
+				customer.Name1 = name1.String
+			}
+			if nameEng1.Valid {
+				customer.NameEng1 = nameEng1.String
+			}
+			if address.Valid {
+				customer.Address = address.String
+			}
+			if telephone.Valid {
+				customer.Telephone = telephone.String
 			}
 
 			// แปลงเป็น map สำหรับ API
 			customerMap := map[string]interface{}{
 				"row_order_ref": customer.RowOrderRef,
-				"code":        customer.Code,
-				"price_level": customer.PriceLevel,
+				"code":          customer.Code,
+				"price_level":   customer.PriceLevel,
+				"name_1":        customer.Name1,
+				"name_eng_1":    customer.NameEng1,
+				"address":       customer.Address,
+				"telephone":     customer.Telephone,
 			}
 
 			// แยกประเภทตาม active_code
@@ -131,7 +151,7 @@ func (s *CustomerSyncStep) GetAllCustomersFromSource() ([]int, []interface{}, []
 			if activeCode == 2 {
 				// activeCode = 2: DELETE บน server ก่อน แล้ว INSERT ใหม่ (ไม่ใช่ UPDATE)
 				deletes = append(deletes, customer.RowOrderRef) // ใช้ row_order_ref เป็น key ในการลบ
-				inserts = append(inserts, customerMap)   // เพิ่มเข้า inserts เพื่อ insert ใหม่
+				inserts = append(inserts, customerMap)          // เพิ่มเข้า inserts เพื่อ insert ใหม่
 			}
 		} else if activeCode == 3 {
 			deletes = append(deletes, rowOrderRef)
