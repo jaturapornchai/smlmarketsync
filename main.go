@@ -18,7 +18,7 @@ func main() {
 	dbConfig := config.NewDatabaseConfig()
 	db, err := dbConfig.Connect()
 	if err != nil {
-		log.Fatal("Failed to connect to source database:", err)
+		log.Fatal("Failed to connect to source xdatabase:", err)
 	}
 	defer db.Close()
 
